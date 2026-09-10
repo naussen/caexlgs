@@ -589,13 +589,15 @@ elif st.session_state.view == 'DETAILS':
                         help="Busca e exibe outras empresas com mesmo e-mail ou telefone"
                     )
                 with c_opt4:
-                    if st.button("🔄 Redefinir Grafo", help="Limpa todas as exclusões, nós manuais e cache"):
+                    if st.button("🧹 Limpar Grafos", help="Limpa todas as conexões, exclusões, nós manuais e cache do grafo para recomeçar", use_container_width=True):
                         st.session_state.graph_excluded_nodes = set()
                         st.session_state.graph_manual_nodes = []
                         st.session_state.graph_manual_edges = []
                         st.session_state.graph_cache_socios_empresas = {}
                         st.session_state.graph_cache_contatos_empresas = {}
                         st.session_state.investigation_notes = ""
+                        st.session_state.graph_expand_socios = False
+                        st.session_state.graph_expand_contacts = False
                         st.rerun()
 
                 # Linha de Recursos de Inteligência

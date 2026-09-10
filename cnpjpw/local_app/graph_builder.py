@@ -252,7 +252,7 @@ def build_graph_html(
             outras_email = contatos_empresas.get(email_clean, [])
             for emp in outras_email:
                 emp_cnpj = emp.get('cnpj') or ""
-                emp_nome = emp.get('razao_social') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
+                emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
                 emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
                 if emp_id != root_id:
                     emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
@@ -291,7 +291,7 @@ def build_graph_html(
             outras_tel = contatos_empresas.get(tel1, [])
             for emp in outras_tel:
                 emp_cnpj = emp.get('cnpj') or ""
-                emp_nome = emp.get('razao_social') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
+                emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
                 emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
                 if emp_id != root_id:
                     emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
@@ -398,19 +398,49 @@ def build_graph_html(
           font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
           background-color: #f8f9fa;
         }}
-        #network-container {{
+        #network-wrapper {{
+          position: relative;
           width: 100%;
           height: calc(100% - 44px);
+        }}
+        #network-container {{
+          width: 100%;
+          height: 100%;
           border: 1px solid #e0e0e0;
           border-radius: 8px;
           background-color: #ffffff;
+        }}
+        #node-delete-btn {{
+          display: none;
+          position: absolute;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          background-color: #d32f2f;
+          color: #ffffff;
+          border: 1.5px solid #ffffff;
+          font-size: 11px;
+          font-weight: 900;
+          font-family: Arial, sans-serif;
+          line-height: 17px;
+          text-align: center;
+          cursor: pointer;
+          box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+          z-index: 1000;
+          padding: 0;
+          transition: transform 0.15s ease, background-color 0.15s ease;
+          user-select: none;
+        }}
+        #node-delete-btn:hover {{
+          transform: scale(1.25);
+          background-color: #b71c1c;
         }}
         #toolbar {{
           height: 40px;
           padding: 2px 10px;
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 8px;
           background: #ffffff;
           border-bottom: 1px solid #e0e0e0;
           font-size: 12px;
@@ -431,6 +461,13 @@ def build_graph_html(
         .btn:hover {{
           background-color: #eceff1;
         }}
+        .btn-danger {{
+          color: #c62828;
+          border-color: #ef9a9a;
+        }}
+        .btn-danger:hover {{
+          background-color: #ffebee;
+        }}
         .legend-item {{
           display: flex;
           align-items: center;
@@ -448,9 +485,10 @@ def build_graph_html(
     </head>
     <body>
       <div id="toolbar">
-        <button class="btn" id="fs-toggle" onclick="toggleFullScreen()">⛶ Tela Cheia (Maximizar)</button>
+        <button class="btn" id="fs-toggle" onclick="toggleFullScreen()">⛶ Maximizar</button>
         <button class="btn" onclick="network.fit({{animation: true}})">🔍 Enquadrar</button>
         <button class="btn" id="physics-toggle" onclick="togglePhysics()">⏸️ Pausar</button>
+        <button class="btn btn-danger" onclick="clearGraph()">🧹 Limpar Grafos</button>
         <button class="btn" onclick="exportImage()">📸 Exportar PNG</button>
         <span style="border-left: 1px solid #cfd8dc; height: 18px; margin: 0 2px;"></span>
         <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_ROOT};"></span> Central</div>
@@ -465,13 +503,21 @@ def build_graph_html(
         <div class="legend-item"><span style="display:inline-block; width:12px; border-top: 2px dashed {COLOR_EDGE_MANUAL};"></span> Vínculo Manual</div>
         <div class="legend-item"><span style="display:inline-block; width:12px; border-top: 2px dashed {COLOR_EDGE_FAMILY};"></span> Parentesco</div>
       </div>
-      <div id="network-container"></div>
+      <div id="network-wrapper">
+        <div id="network-container"></div>
+        <button id="node-delete-btn" title="Excluir este nó da visualização (✕)">✕</button>
+      </div>
 
       <script type="text/javascript">
         var nodes = new vis.DataSet({nodes_json});
         var edges = new vis.DataSet({edges_json});
 
         var container = document.getElementById('network-container');
+        var delBtn = document.getElementById('node-delete-btn');
+        var activeTargetNode = null;
+        var hideTimeout = null;
+        var isMouseOverBtn = false;
+
         var data = {{
           nodes: nodes,
           edges: edges
@@ -510,6 +556,94 @@ def build_graph_html(
         var network = new vis.Network(container, data, options);
         var physicsEnabled = true;
 
+        function updateDeleteBtnPosition(nodeId) {{
+          try {{
+            var pos = network.getPosition(nodeId);
+            var domPos = network.canvasToDOM(pos);
+            delBtn.style.left = (domPos.x + 12) + 'px';
+            delBtn.style.top = (domPos.y - 18) + 'px';
+            delBtn.style.display = 'block';
+          }} catch (e) {{
+            delBtn.style.display = 'none';
+          }}
+        }}
+
+        network.on('hoverNode', function(params) {{
+          clearTimeout(hideTimeout);
+          activeTargetNode = params.node;
+          updateDeleteBtnPosition(params.node);
+        }});
+
+        network.on('blurNode', function(params) {{
+          hideTimeout = setTimeout(function() {{
+            if (!isMouseOverBtn) {{
+              delBtn.style.display = 'none';
+              activeTargetNode = null;
+            }}
+          }}, 350);
+        }});
+
+        network.on('selectNode', function(params) {{
+          if (params.nodes.length > 0) {{
+            clearTimeout(hideTimeout);
+            activeTargetNode = params.nodes[0];
+            updateDeleteBtnPosition(activeTargetNode);
+          }}
+        }});
+
+        network.on('deselectNode', function() {{
+          delBtn.style.display = 'none';
+          activeTargetNode = null;
+        }});
+
+        network.on('dragging', function() {{
+          if (activeTargetNode) updateDeleteBtnPosition(activeTargetNode);
+        }});
+
+        network.on('zoom', function() {{
+          if (activeTargetNode) updateDeleteBtnPosition(activeTargetNode);
+        }});
+
+        delBtn.addEventListener('mouseenter', function() {{
+          isMouseOverBtn = true;
+          clearTimeout(hideTimeout);
+        }});
+
+        delBtn.addEventListener('mouseleave', function() {{
+          isMouseOverBtn = false;
+          delBtn.style.display = 'none';
+          activeTargetNode = null;
+        }});
+
+        delBtn.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          if (activeTargetNode) {{
+            nodes.remove(activeTargetNode);
+            delBtn.style.display = 'none';
+            activeTargetNode = null;
+          }}
+        }});
+
+        // Teclas Delete e Backspace para remoção de nós selecionados
+        document.addEventListener('keydown', function(e) {{
+          if (e.key === 'Delete' || e.key === 'Backspace') {{
+            var sel = network.getSelectedNodes();
+            if (sel && sel.length > 0) {{
+              nodes.remove(sel);
+              delBtn.style.display = 'none';
+              activeTargetNode = null;
+            }}
+          }}
+        }});
+
+        function clearGraph() {{
+          if (confirm("Deseja realmente limpar todos os nós do grafo visual?")) {{
+            nodes.clear();
+            edges.clear();
+            if (delBtn) delBtn.style.display = 'none';
+          }}
+        }}
+
         function togglePhysics() {{
           physicsEnabled = !physicsEnabled;
           network.setOptions({{ physics: {{ enabled: physicsEnabled }} }});
@@ -538,7 +672,7 @@ def build_graph_html(
           var isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
           var btn = document.getElementById('fs-toggle');
           if (btn) {{
-            btn.innerHTML = isFs ? '🗗 Restaurar' : '⛶ Tela Cheia (Maximizar)';
+            btn.innerHTML = isFs ? '🗗 Restaurar' : '⛶ Maximizar';
           }}
           setTimeout(function() {{
             network.fit({{ animation: true }});

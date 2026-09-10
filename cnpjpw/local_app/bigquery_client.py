@@ -53,15 +53,31 @@ def clear_last_error():
 def _get_client() -> bigquery.Client:
     """Instancia o cliente BigQuery com credenciais de arquivo ou do ambiente."""
     kwargs = {}
-    if _project_id:
-        kwargs["project"] = _project_id
+    cred_path = _credentials_path
+    if not cred_path:
+        for candidate in ["gcp-key.json", os.path.join(os.path.dirname(__file__), "..", "..", "gcp-key.json"), "c:/Users/7401/Documents/CNPJ/gcp-key.json"]:
+            if os.path.exists(candidate):
+                cred_path = os.path.abspath(candidate)
+                break
 
-    if _credentials_path and os.path.exists(_credentials_path):
+    project = _project_id
+    if cred_path and os.path.exists(cred_path):
         credentials = service_account.Credentials.from_service_account_file(
-            _credentials_path,
+            cred_path,
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         kwargs["credentials"] = credentials
+        if not project:
+            try:
+                import json
+                with open(cred_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    project = data.get("project_id")
+            except Exception:
+                pass
+
+    if project:
+        kwargs["project"] = project
 
     return bigquery.Client(**kwargs)
 
@@ -111,7 +127,7 @@ def test_connection() -> Tuple[bool, str]:
 
 
 def buscar_email(email: str, limit: int = 25, months: int = 3) -> List[Dict]:
-    """Busca estabelecimentos no BigQuery que possuam o e-mail correspondente."""
+    """Busca estabelecimentos no BigQuery que possuam o e-mail correspondente com Razão Social."""
     global _last_error
     _last_error = None
     email_clean = email.strip().lower()
@@ -119,23 +135,27 @@ def buscar_email(email: str, limit: int = 25, months: int = 3) -> List[Dict]:
     try:
         client = _get_client()
         dates = get_recent_partitions(client, limit=months)
-        dates_filter = f"data IN ('" + "', '".join(dates) + "') AND " if dates else ""
+        dates_filter = f"est.data IN ('" + "', '".join(dates) + "') AND " if dates else ""
+        snapshot_ref = dates[0] if dates else '2026-01-11'
 
         query = f"""
         SELECT
-            cnpj,
-            ANY_VALUE(cnpj_basico) AS cnpj_basico,
-            ANY_VALUE(cnpj_ordem) AS cnpj_ordem,
-            ANY_VALUE(cnpj_dv) AS cnpj_dv,
-            ANY_VALUE(nome_fantasia) AS nome_fantasia,
-            ANY_VALUE(sigla_uf) AS sigla_uf,
-            ANY_VALUE(email) AS email,
-            ANY_VALUE(ddd_1) AS ddd_1,
-            ANY_VALUE(telefone_1) AS telefone_1
-        FROM `{_dataset_table}`
-        WHERE {dates_filter} LOWER(email) = LOWER(@email)
-        GROUP BY cnpj
-        ORDER BY cnpj
+            est.cnpj,
+            ANY_VALUE(est.cnpj_basico) AS cnpj_basico,
+            ANY_VALUE(est.cnpj_ordem) AS cnpj_ordem,
+            ANY_VALUE(est.cnpj_dv) AS cnpj_dv,
+            ANY_VALUE(est.nome_fantasia) AS nome_fantasia,
+            ANY_VALUE(em.razao_social) AS razao_social,
+            ANY_VALUE(est.sigla_uf) AS sigla_uf,
+            ANY_VALUE(est.email) AS email,
+            ANY_VALUE(est.ddd_1) AS ddd_1,
+            ANY_VALUE(est.telefone_1) AS telefone_1
+        FROM `{_dataset_table}` est
+        LEFT JOIN `basedosdados.br_me_cnpj.empresas` em
+          ON est.cnpj_basico = em.cnpj_basico AND em.data = '{snapshot_ref}'
+        WHERE {dates_filter} LOWER(est.email) = LOWER(@email)
+        GROUP BY est.cnpj
+        ORDER BY est.cnpj
         LIMIT {limit}
         """
 
@@ -154,13 +174,17 @@ def buscar_email(email: str, limit: int = 25, months: int = 3) -> List[Dict]:
                 str(row.get("cnpj_ordem", "")) +
                 str(row.get("cnpj_dv", ""))
             )
-            nome = row.get("nome_fantasia") or cnpj_val or "Estabelecimento"
+            razao = row.get("razao_social")
+            fantasia = row.get("nome_fantasia")
+            nome = razao or fantasia or cnpj_val or "Estabelecimento"
             resultados.append({
                 "cnpj": cnpj_val,
                 "cnpj_base": row.get("cnpj_basico"),
                 "cnpj_ordem": row.get("cnpj_ordem"),
                 "cnpj_dv": row.get("cnpj_dv"),
+                "razao_social": razao or fantasia or f"CNPJ {cnpj_val}",
                 "nome_empresarial": nome,
+                "nome_fantasia": fantasia,
                 "sigla_uf": row.get("sigla_uf"),
                 "correio_eletronico": row.get("email"),
                 "telefone": f"({row.get('ddd_1', '') or ''}) {row.get('telefone_1', '') or ''}".strip()
@@ -186,7 +210,7 @@ def buscar_email(email: str, limit: int = 25, months: int = 3) -> List[Dict]:
 
 
 def buscar_telefone(ddd: str, telefone: str, limit: int = 25, months: int = 3) -> List[Dict]:
-    """Busca estabelecimentos no BigQuery que possuam o DDD e telefone correspondentes."""
+    """Busca estabelecimentos no BigQuery que possuam o DDD e telefone correspondentes com Razão Social."""
     global _last_error
     _last_error = None
     ddd_clean = ddd.strip()
@@ -195,26 +219,30 @@ def buscar_telefone(ddd: str, telefone: str, limit: int = 25, months: int = 3) -
     try:
         client = _get_client()
         dates = get_recent_partitions(client, limit=months)
-        dates_filter = f"data IN ('" + "', '".join(dates) + "') AND " if dates else ""
+        dates_filter = f"est.data IN ('" + "', '".join(dates) + "') AND " if dates else ""
+        snapshot_ref = dates[0] if dates else '2026-01-11'
 
         query = f"""
         SELECT
-            cnpj,
-            ANY_VALUE(cnpj_basico) AS cnpj_basico,
-            ANY_VALUE(cnpj_ordem) AS cnpj_ordem,
-            ANY_VALUE(cnpj_dv) AS cnpj_dv,
-            ANY_VALUE(nome_fantasia) AS nome_fantasia,
-            ANY_VALUE(sigla_uf) AS sigla_uf,
-            ANY_VALUE(email) AS email,
-            ANY_VALUE(ddd_1) AS ddd_1,
-            ANY_VALUE(telefone_1) AS telefone_1
-        FROM `{_dataset_table}`
+            est.cnpj,
+            ANY_VALUE(est.cnpj_basico) AS cnpj_basico,
+            ANY_VALUE(est.cnpj_ordem) AS cnpj_ordem,
+            ANY_VALUE(est.cnpj_dv) AS cnpj_dv,
+            ANY_VALUE(est.nome_fantasia) AS nome_fantasia,
+            ANY_VALUE(em.razao_social) AS razao_social,
+            ANY_VALUE(est.sigla_uf) AS sigla_uf,
+            ANY_VALUE(est.email) AS email,
+            ANY_VALUE(est.ddd_1) AS ddd_1,
+            ANY_VALUE(est.telefone_1) AS telefone_1
+        FROM `{_dataset_table}` est
+        LEFT JOIN `basedosdados.br_me_cnpj.empresas` em
+          ON est.cnpj_basico = em.cnpj_basico AND em.data = '{snapshot_ref}'
         WHERE {dates_filter} (
-            (ddd_1 = @ddd AND telefone_1 = @telefone) OR
-            (ddd_2 = @ddd AND telefone_2 = @telefone)
+            (est.ddd_1 = @ddd AND est.telefone_1 = @telefone) OR
+            (est.ddd_2 = @ddd AND est.telefone_2 = @telefone)
         )
-        GROUP BY cnpj
-        ORDER BY cnpj
+        GROUP BY est.cnpj
+        ORDER BY est.cnpj
         LIMIT {limit}
         """
 
@@ -234,13 +262,17 @@ def buscar_telefone(ddd: str, telefone: str, limit: int = 25, months: int = 3) -
                 str(row.get("cnpj_ordem", "")) +
                 str(row.get("cnpj_dv", ""))
             )
-            nome = row.get("nome_fantasia") or cnpj_val or "Estabelecimento"
+            razao = row.get("razao_social")
+            fantasia = row.get("nome_fantasia")
+            nome = razao or fantasia or cnpj_val or "Estabelecimento"
             resultados.append({
                 "cnpj": cnpj_val,
                 "cnpj_base": row.get("cnpj_basico"),
                 "cnpj_ordem": row.get("cnpj_ordem"),
                 "cnpj_dv": row.get("cnpj_dv"),
+                "razao_social": razao or fantasia or f"CNPJ {cnpj_val}",
                 "nome_empresarial": nome,
+                "nome_fantasia": fantasia,
                 "sigla_uf": row.get("sigla_uf"),
                 "correio_eletronico": row.get("email"),
                 "telefone": f"({row.get('ddd_1', '') or ''}) {row.get('telefone_1', '') or ''}".strip()
