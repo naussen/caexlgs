@@ -1,0 +1,36 @@
+# Credenciais e Chaves Sensíveis (NUNCA SUBIR PRO GITHUB)
+gcp-key.json
+*.json
+!package.json
+
+# Arquivos Compactados e Dumps
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Python e Ambientes Virtuais
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Variáveis de Ambiente
+.env
+.env.local
+
+# Logs e Arquivos Temporários
+*.log
+.system_generated/
+scratch/
+
+# Sistema Operacional
+.DS_Store
+Thumbs.db
+desktop.ini
