@@ -5,16 +5,18 @@ from google.oauth2 import service_account
 from google.api_core.exceptions import GoogleAPICallError, PermissionDenied, NotFound, Forbidden
 
 DEFAULT_TABLE = "basedosdados.br_me_cnpj.estabelecimentos"
+DEFAULT_PROJECT_ID = "consulta-cnpj-123456"
+DEFAULT_KEY_PATH = "c:/Users/7401/Documents/CNPJ/gcp-key.json"
 
-_project_id: Optional[str] = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT_ID")
-_credentials_path: Optional[str] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+_project_id: Optional[str] = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT_ID") or DEFAULT_PROJECT_ID
+_credentials_path: Optional[str] = os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or (DEFAULT_KEY_PATH if os.path.exists(DEFAULT_KEY_PATH) else None)
 _dataset_table: str = os.getenv("BIGQUERY_CNPJ_TABLE", DEFAULT_TABLE)
 _last_error: Optional[str] = None
 _cached_partitions: Optional[List[str]] = None
 
 
 def get_project_id() -> str:
-    return _project_id or ""
+    return _project_id or DEFAULT_PROJECT_ID
 
 
 def set_project_id(project_id: str):
@@ -51,31 +53,77 @@ def clear_last_error():
 
 
 def _get_client() -> bigquery.Client:
-    """Instancia o cliente BigQuery com credenciais de arquivo ou do ambiente."""
+    """Instancia o cliente BigQuery com credenciais de arquivo, Streamlit Secrets ou ambiente."""
+    import json
     kwargs = {}
-    cred_path = _credentials_path
-    if not cred_path:
-        for candidate in ["gcp-key.json", os.path.join(os.path.dirname(__file__), "..", "..", "gcp-key.json"), "c:/Users/7401/Documents/CNPJ/gcp-key.json"]:
-            if os.path.exists(candidate):
-                cred_path = os.path.abspath(candidate)
-                break
+    credentials = None
+    project = _project_id or DEFAULT_PROJECT_ID
 
-    project = _project_id
-    if cred_path and os.path.exists(cred_path):
-        credentials = service_account.Credentials.from_service_account_file(
-            cred_path,
-            scopes=["https://www.googleapis.com/auth/cloud-platform"]
-        )
-        kwargs["credentials"] = credentials
-        if not project:
+    # 1. Tenta carregar via Streamlit Secrets (ideal para deploy em nuvem com sigilo total)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            if "GCP_SERVICE_ACCOUNT_JSON" in st.secrets:
+                secret_raw = st.secrets["GCP_SERVICE_ACCOUNT_JSON"]
+                info = json.loads(secret_raw) if isinstance(secret_raw, str) else dict(secret_raw)
+                credentials = service_account.Credentials.from_service_account_info(
+                    info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                project = info.get("project_id", project)
+            elif "gcp_service_account" in st.secrets:
+                info = dict(st.secrets["gcp_service_account"])
+                credentials = service_account.Credentials.from_service_account_info(
+                    info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                project = info.get("project_id", project)
+            if "GCP_PROJECT_ID" in st.secrets:
+                project = st.secrets["GCP_PROJECT_ID"]
+    except Exception:
+        pass
+
+    # 2. Tenta carregar de variável de ambiente contendo o JSON bruto (Netlify / Docker / Render)
+    if not credentials:
+        raw_json_env = os.getenv("GCP_SERVICE_ACCOUNT_JSON")
+        if raw_json_env:
             try:
-                import json
-                with open(cred_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    project = data.get("project_id")
+                info = json.loads(raw_json_env)
+                credentials = service_account.Credentials.from_service_account_info(
+                    info, scopes=["https://www.googleapis.com/auth/cloud-platform"]
+                )
+                project = info.get("project_id", project)
             except Exception:
                 pass
 
+    # 3. Tenta carregar de arquivo local (.json)
+    if not credentials:
+        cred_path = _credentials_path
+        if not cred_path or not os.path.exists(cred_path):
+            candidates = [
+                DEFAULT_KEY_PATH,
+                "gcp-key.json",
+                os.path.join(os.path.dirname(__file__), "..", "..", "gcp-key.json"),
+                os.path.join(os.getcwd(), "gcp-key.json")
+            ]
+            for candidate in candidates:
+                if os.path.exists(candidate):
+                    cred_path = os.path.abspath(candidate)
+                    break
+
+        if cred_path and os.path.exists(cred_path):
+            credentials = service_account.Credentials.from_service_account_file(
+                cred_path,
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            try:
+                with open(cred_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if not _project_id:
+                        project = data.get("project_id", project)
+            except Exception:
+                pass
+
+    if credentials:
+        kwargs["credentials"] = credentials
     if project:
         kwargs["project"] = project
 

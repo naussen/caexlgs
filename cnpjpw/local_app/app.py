@@ -41,9 +41,9 @@ if 'api_target' not in st.session_state:
     st.session_state.api_target = "Google BigQuery (Sigilo Total & Privado)"
 if 'use_bigquery_for_contacts' not in st.session_state:
     st.session_state.use_bigquery_for_contacts = True
-if 'bq_project_id' not in st.session_state:
+if 'bq_project_id' not in st.session_state or not st.session_state.bq_project_id:
     st.session_state.bq_project_id = bigquery_client.get_project_id() or "consulta-cnpj-123456"
-if 'bq_credentials_path' not in st.session_state:
+if 'bq_credentials_path' not in st.session_state or not st.session_state.bq_credentials_path:
     st.session_state.bq_credentials_path = bigquery_client.get_credentials_path() or "c:/Users/7401/Documents/CNPJ/gcp-key.json"
 if 'bq_test_status' not in st.session_state:
     st.session_state.bq_test_status = None
