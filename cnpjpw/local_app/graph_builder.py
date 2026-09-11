@@ -1,7 +1,10 @@
 """
 Módulo para geração de Grafos Interativos de Relacionamento Societário e Contatos (Vis.js).
 Funcionalidades:
-- Exclusão de nós (contadores / ruído de rede)
+- Sinalização visual explícita de Contadores / Escritórios Contábeis (nós 🧮 em Teal)
+- Exclusão e filtragem de nós (contadores / ruído de rede)
+- Centralização e auto-enquadramento automáticos
+- Movimentação livre de nós (sem efeito elástico de retorno)
 - Inserção manual de Pessoas Físicas e Jurídicas com vínculos customizados
 - Destaque visual de Risco / Irregularidades Cadastrais (Inapta, Baixada, Suspensa)
 - Mapeamento de Endereços Compartilhados (nós 📍)
@@ -25,6 +28,8 @@ COLOR_EMPRESA_LINK = "#1976D2"   # Azul Médio
 COLOR_EMPRESA_RISK = "#D32F2F"   # Vermelho Alerta (Inapta/Baixada/Suspensa)
 COLOR_SOCIO = "#E65100"          # Laranja
 COLOR_UBO = "#FBC02D"            # Dourado (Beneficiário Final)
+COLOR_CONTADOR = "#00897B"       # Verde Petróleo / Teal (Contador / Contabilidade)
+COLOR_CONTADOR_BORDER = "#004D40"# Verde Petróleo Escuro
 COLOR_EMAIL = "#2E7D32"          # Verde Floresta
 COLOR_TELEFONE = "#7B1FA2"       # Roxo
 COLOR_ENDERECO = "#00838F"       # Ciano / Turquesa (Endereço Compartilhado)
@@ -39,15 +44,20 @@ COLOR_EDGE_ENDERECO = "#00ACC1"  # Ciano suave (Endereço)
 
 TERMOS_CONTABILIDADE = [
     "contab", "contabil", "contabilidade", "assessoria", "consultoria",
-    "fiscal@", "dp@", "escritorio", "cont@be", "contar", "auditoria"
+    "fiscal@", "dp@", "escritorio", "cont@be", "contar", "auditoria", "contador"
 ]
 
-def is_probable_accountant(label: str, title: str = "") -> bool:
-    """Verifica se o nó possui termos característicos de escritório de contabilidade."""
+CNAES_CONTABILIDADE = ["6920601", "6920602", "6920-6/01", "6920-6/02"]
+
+def is_probable_accountant(label: str = "", title: str = "", cnae: str = "") -> bool:
+    """Verifica se o nó possui termos ou CNAE característicos de escritório de contabilidade / contador."""
     content = f"{label} {title}".lower()
     for termo in TERMOS_CONTABILIDADE:
         if termo in content:
             return True
+    cnae_clean = str(cnae or "").replace(".", "").replace("-", "").replace("/", "").strip()
+    if cnae_clean in ("6920601", "6920602"):
+        return True
     return False
 
 def build_graph_elements(
@@ -91,29 +101,56 @@ def build_graph_elements(
     nodes_dict = {}
     edges_list = []
 
-    def add_node(node_id: str, label: str, title: str, color: str, size: int, shape: str = "dot", node_type: str = "OUTRO", border_color: str = None, raw_val: str = ""):
+    def add_node(
+        node_id: str,
+        label: str,
+        title: str,
+        color: str,
+        size: int,
+        shape: str = "dot",
+        node_type: str = "OUTRO",
+        border_color: str = None,
+        raw_val: str = "",
+        cnae: str = ""
+    ):
         if node_id in excluded_nodes:
             return False
-        if auto_filter_accountants and is_probable_accountant(label, title):
+
+        # Verificação e Sinalização de CONTADOR (Requisito 4)
+        is_acct = is_probable_accountant(label, title, cnae)
+        if auto_filter_accountants and is_acct:
             return False
+
+        display_color = color
+        display_border = border_color or color
+        display_label = label
+        display_title = title
+
+        if is_acct and node_type != "EMPRESA_ROOT":
+            display_color = COLOR_CONTADOR
+            display_border = COLOR_CONTADOR_BORDER
+            if not display_label.startswith("🧮"):
+                display_label = f"🧮 {display_label}"
+            display_title += "<br><span style='background:#004D40; color:#ffffff; padding:2px 6px; border-radius:3px;'><b>🧮 SINALIZADO COMO CONTADOR / ESCRITÓRIO CONTÁBIL</b></span>"
+
         if node_id not in nodes_dict:
-            b_color = border_color or color
             nodes_dict[node_id] = {
                 "id": node_id,
-                "label": label,
-                "title": title,
+                "label": display_label,
+                "title": display_title,
                 "color": {
-                    "background": color,
-                    "border": b_color,
+                    "background": display_color,
+                    "border": display_border,
                     "highlight": {"background": "#FFEB3B", "border": "#F57F17"}
                 },
                 "size": size,
                 "shape": shape,
                 "font": {"color": "#212121", "size": 12, "face": "Roboto, Segoe UI, sans-serif"},
                 "shadow": True,
-                "_type": node_type,
+                "_type": "CONTABILIDADE" if (is_acct and node_type != "EMPRESA_ROOT") else node_type,
                 "_raw_label": label,
-                "_raw_val": raw_val or node_id
+                "_raw_val": raw_val or node_id,
+                "_is_accountant": is_acct
             }
         return True
 
@@ -181,7 +218,8 @@ def build_graph_elements(
         size=36,
         shape="dot",
         node_type="EMPRESA_ROOT",
-        raw_val=root_cnpj
+        raw_val=root_cnpj,
+        cnae=root_data.get('cnae_fiscal_principal') or ""
     )
 
     # 2. Sócios da Raiz
@@ -268,7 +306,8 @@ def build_graph_elements(
                     size=24,
                     shape="dot",
                     node_type="EMPRESA",
-                    raw_val=emp_cnpj
+                    raw_val=emp_cnpj,
+                    cnae=emp.get('cnae_fiscal_principal') or ""
                 ):
                     add_edge(s_id, emp_id, label="Participação")
 
@@ -343,7 +382,8 @@ def build_graph_elements(
                         size=22,
                         shape="dot",
                         node_type="EMPRESA",
-                        raw_val=emp_cnpj
+                        raw_val=emp_cnpj,
+                        cnae=emp.get('cnae_fiscal_principal') or ""
                     ):
                         add_edge(em_id, emp_id, label="mesmo e-mail")
         else:
@@ -379,7 +419,8 @@ def build_graph_elements(
                             size=22,
                             shape="dot",
                             node_type="EMPRESA",
-                            raw_val=emp_cnpj
+                            raw_val=emp_cnpj,
+                            cnae=emp.get('cnae_fiscal_principal') or ""
                         ):
                             add_edge(tel_id, emp_id, label="mesmo fone")
 
@@ -478,7 +519,8 @@ def build_graph_elements(
             size=26,
             shape="dot",
             node_type="EMPRESA",
-            raw_val=ext_cnpj
+            raw_val=ext_cnpj,
+            cnae=ext_emp.get('cnae_fiscal_principal') or ""
         )
 
         # Sócios da empresa expandida
@@ -537,13 +579,13 @@ def render_interactive_graph(
     auto_filter_accountants: bool = False,
     manual_nodes: list = None,
     manual_edges: list = None,
-    height: int = 750,
+    height: int = 850,
     extra_companies: dict = None,
     key: str = "main_interactive_graph"
 ) -> Tuple[Optional[Dict[str, Any]], List[Dict]]:
     """
     Renderiza o grafo interativo através do Streamlit Custom Component com suporte
-    a cliques nos botões de expansão (+) e exclusão (x), retornando o evento e a lista de nós.
+    a cliques nos botões de expansão (+), exclusão (x), movimentação livre e sinalização de contadores.
     """
     nodes_list, edges_list, available_nodes = build_graph_elements(
         root_data=root_data,
@@ -582,7 +624,7 @@ def build_graph_html(
     auto_filter_accountants: bool = False,
     manual_nodes: list = None,
     manual_edges: list = None,
-    height: str = "750px",
+    height: str = "850px",
     extra_companies: dict = None
 ) -> Tuple[str, List[Dict]]:
     """
@@ -614,48 +656,13 @@ def build_graph_html(
       <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
       <style>
         body, html {{
-          margin: 0;
-          padding: 0;
-          width: 100%;
-          height: 100%;
-          overflow: hidden;
-          font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-          background-color: #f8f9fa;
+          margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+          font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8f9fa;
         }}
-        #network-wrapper {{
-          position: relative;
-          width: 100%;
-          height: calc(100% - 44px);
-        }}
-        #network-container {{
-          width: 100%;
-          height: 100%;
-          border: 1px solid #e0e0e0;
-          border-radius: 8px;
-          background-color: #ffffff;
-        }}
-        #toolbar {{
-          height: 40px;
-          padding: 2px 10px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          background: #ffffff;
-          border-bottom: 1px solid #e0e0e0;
-          font-size: 12px;
-          color: #424242;
-          overflow-x: auto;
-          white-space: nowrap;
-        }}
-        .btn {{
-          padding: 4px 10px;
-          border: 1px solid #cfd8dc;
-          border-radius: 4px;
-          background-color: #ffffff;
-          cursor: pointer;
-          font-size: 11px;
-          font-weight: 500;
-        }}
+        #network-wrapper {{ position: relative; width: 100%; height: calc(100% - 44px); }}
+        #network-container {{ width: 100%; height: 100%; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #ffffff; }}
+        #toolbar {{ height: 40px; padding: 2px 10px; display: flex; align-items: center; gap: 8px; background: #ffffff; border-bottom: 1px solid #e0e0e0; font-size: 12px; color: #424242; overflow-x: auto; white-space: nowrap; }}
+        .btn {{ padding: 4px 10px; border: 1px solid #cfd8dc; border-radius: 4px; background-color: #ffffff; cursor: pointer; font-size: 11px; font-weight: 500; }}
         .btn:hover {{ background-color: #eceff1; }}
         .btn-danger {{ color: #c62828; border-color: #ef9a9a; }}
         .legend-item {{ display: flex; align-items: center; gap: 4px; margin-left: 4px; font-size: 11px; }}
@@ -664,8 +671,8 @@ def build_graph_html(
     </head>
     <body>
       <div id="toolbar">
-        <button class="btn" onclick="network.fit({{animation: true}})">🔍 Enquadrar</button>
-        <button class="btn" id="physics-toggle" onclick="togglePhysics()">⏸️ Pausar</button>
+        <button class="btn" onclick="network.fit({{animation: true}})">🔍 Centralizar</button>
+        <button class="btn" id="physics-toggle" onclick="togglePhysics()">⏸️ Pausar Física</button>
         <button class="btn btn-danger" onclick="clearGraph()">🧹 Limpar Grafos</button>
         <button class="btn" onclick="exportImage()">📸 Exportar PNG</button>
         <span style="border-left: 1px solid #cfd8dc; height: 18px; margin: 0 2px;"></span>
@@ -674,6 +681,7 @@ def build_graph_html(
         <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_RISK};"></span> ⚠️ Irregular</div>
         <div class="legend-item"><span class="dot" style="background-color: {COLOR_SOCIO};"></span> Sócio</div>
         <div class="legend-item"><span class="dot" style="background-color: {COLOR_UBO};"></span> 👑 UBO</div>
+        <div class="legend-item"><span class="dot" style="background-color: {COLOR_CONTADOR};"></span> 🧮 Contador</div>
       </div>
       <div id="network-wrapper">
         <div id="network-container"></div>
@@ -689,7 +697,7 @@ def build_graph_html(
           edges: {{ smooth: {{ type: 'continuous', roundness: 0.25 }}, shadow: false }},
           physics: {{
             enabled: true,
-            forceAtlas2Based: {{ gravitationalConstant: -65, centralGravity: 0.012, springLength: 130, springStrength: 0.07, damping: 0.45 }},
+            forceAtlas2Based: {{ gravitationalConstant: -60, centralGravity: 0.01, springLength: 130, springStrength: 0.06, damping: 0.45 }},
             solver: 'forceAtlas2Based',
             stabilization: {{ iterations: 120 }}
           }},
@@ -699,10 +707,23 @@ def build_graph_html(
         var network = new vis.Network(container, {{nodes: nodes, edges: edges}}, options);
         var physicsEnabled = true;
 
+        network.once('stabilizationIterationsDone', function() {{
+          setTimeout(function() {{ network.fit({{animation: {{duration: 700}}}}); }}, 100);
+        }});
+
+        network.on('dragEnd', function(params) {{
+          if (params.nodes && params.nodes.length > 0) {{
+            params.nodes.forEach(function(nodeId) {{
+              var pos = network.getPosition(nodeId);
+              nodes.update({{ id: nodeId, x: pos.x, y: pos.y, fixed: {{x: true, y: true}}, physics: false }});
+            }});
+          }}
+        }});
+
         function togglePhysics() {{
           physicsEnabled = !physicsEnabled;
           network.setOptions({{ physics: {{ enabled: physicsEnabled }} }});
-          document.getElementById('physics-toggle').innerHTML = physicsEnabled ? '⏸️ Pausar' : '▶️ Ativar';
+          document.getElementById('physics-toggle').innerHTML = physicsEnabled ? '⏸️ Pausar Física' : '▶️ Ativar Física';
         }}
 
         function clearGraph() {{

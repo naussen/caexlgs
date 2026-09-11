@@ -603,88 +603,15 @@ elif st.session_state.view == 'DETAILS':
                     executar_expansao_entidade(q_type, q_val, q_lbl)
                     st.rerun()
 
-                col_g_title, col_g_size = st.columns([3, 1.5])
-                with col_g_title:
-                    st.write("### 🕸️ Grafo Interativo de Relacionamentos")
-                    st.caption(
-                        "Explore a rede de vínculos societários e contatos da empresa. "
-                        "Passe o mouse sobre os nós para ver ações (botão **✚** para expandir relações, botão **✕** para excluir). "
-                        "Arraste nós, use o zoom ou clique em **⛶ Maximizar**."
-                    )
-                with col_g_size:
-                    graph_height_str = st.select_slider(
-                        "📐 Tamanho da Área do Grafo:",
-                        options=["700px (Padrão)", "900px (Expandido)", "1150px (Grande)"],
-                        value="900px (Expandido)",
-                        key="sel_graph_height"
-                    )
-                    graph_h_int = int(graph_height_str.split("px")[0])
+                st.write("### 🕸️ Grafo Interativo de Relacionamentos")
+                st.caption(
+                    "Todos os controles, expansões e filtros estão integrados diretamente na barra superior da janela do grafo. "
+                    "Arraste entidades livremente para organizar (elas ficam onde você soltar sem voltar), passe o mouse para ver ações (botão **✚** para expandir, **✕** para excluir), "
+                    "ou dê um duplo-clique no nó."
+                )
 
-                # Controles e Filtros Rápidos
-                c_opt1, c_opt2, c_opt3, c_opt4 = st.columns([1.2, 1.2, 1.2, 1])
-                with c_opt1:
-                    st.session_state.graph_auto_filter_accountants = st.checkbox(
-                        "🧹 Filtrar Contadores",
-                        value=st.session_state.graph_auto_filter_accountants,
-                        help="Oculta nós com termos contábeis (contab, assessoria, fiscal@, etc.)"
-                    )
-                with c_opt2:
-                    st.session_state.graph_expand_socios = st.checkbox(
-                        "👥 Expandir Sócios (2º Grau)",
-                        value=st.session_state.graph_expand_socios,
-                        help="Busca e exibe outras empresas vinculadas a estes mesmos sócios"
-                    )
-                with c_opt3:
-                    st.session_state.graph_expand_contacts = st.checkbox(
-                        "📞 Expandir Contatos",
-                        value=st.session_state.graph_expand_contacts,
-                        help="Busca e exibe outras empresas com mesmo e-mail ou telefone"
-                    )
-                with c_opt4:
-                    if st.button("🧹 Limpar Grafos", help="Limpa todas as conexões, exclusões, nós manuais e cache do grafo para recomeçar", use_container_width=True):
-                        st.session_state.graph_excluded_nodes = set()
-                        st.session_state.graph_manual_nodes = []
-                        st.session_state.graph_manual_edges = []
-                        st.session_state.graph_cache_socios_empresas = {}
-                        st.session_state.graph_cache_contatos_empresas = {}
-                        st.session_state.multi_expanded_companies = {}
-                        st.session_state.multi_expanded_socios = {}
-                        st.session_state.multi_expanded_phones = {}
-                        st.session_state.multi_expanded_emails = {}
-                        st.session_state.investigation_notes = ""
-                        st.session_state.graph_expand_socios = False
-                        st.session_state.graph_expand_contacts = False
-                        st.rerun()
-
-                # Linha de Recursos de Inteligência
-                c_int1, c_int2, c_int3, c_int4 = st.columns(4)
-                with c_int1:
-                    st.session_state.enable_risk_highlight = st.checkbox(
-                        "🚨 Alertas de Risco (Inaptas/Baixadas)",
-                        value=st.session_state.enable_risk_highlight,
-                        help="Destaca em vermelho empresas inaptas, baixadas ou com pendências"
-                    )
-                with c_int2:
-                    st.session_state.enable_shared_addresses = st.checkbox(
-                        "📍 Endereços Compartilhados",
-                        value=st.session_state.enable_shared_addresses,
-                        help="Mapeia empresas com mesmo CEP e número de logradouro"
-                    )
-                with c_int3:
-                    st.session_state.enable_family_detection = st.checkbox(
-                        "👨‍👩‍👧 Parentesco Automático",
-                        value=st.session_state.enable_family_detection,
-                        help="Identifica sócios com sobrenomes em comum (grupos familiares)"
-                    )
-                with c_int4:
-                    st.session_state.enable_ubo_detection = st.checkbox(
-                        "👑 Rastrear UBO (Beneficiário Final)",
-                        value=st.session_state.enable_ubo_detection,
-                        help="Rastreia holdings e pessoas físicas controladoras no topo"
-                    )
-
-                # Expansão sob demanda: Sócios
-                if st.session_state.graph_expand_socios:
+                # Expansão sob demanda: Sócios (acionada via toolbar do grafo)
+                if st.session_state.get('graph_expand_socios', False):
                     socios_list = dados.get('socios', [])
                     for s in socios_list:
                         n_socio = s.get('nome')
@@ -693,28 +620,28 @@ elif st.session_state.view == 'DETAILS':
                                 res_soc = api_client.buscar_empresas_do_socio(n_socio, s.get('cnpj_cpf'))
                                 st.session_state.graph_cache_socios_empresas[n_socio] = res_soc or []
 
-                # Expansão sob demanda: Contatos
-                if st.session_state.graph_expand_contacts:
+                # Expansão sob demanda: Contatos (acionada via toolbar do grafo)
+                if st.session_state.get('graph_expand_contacts', False):
                     em = dados.get('correio_eletronico')
                     if em and em not in st.session_state.graph_cache_contatos_empresas:
                         with st.spinner(f"Buscando empresas com e-mail {em}..."):
-                            res_em, _, _ = executar_busca_email(em)
+                            res_em = api_client.buscar_email(em)
                             st.session_state.graph_cache_contatos_empresas[em] = res_em or []
                     
                     t1 = f"{dados.get('ddd1', '') or ''}{dados.get('telefone_1', '') or ''}".strip()
                     if len(t1) > 2 and t1 not in st.session_state.graph_cache_contatos_empresas:
                         with st.spinner(f"Buscando empresas com telefone {t1}..."):
-                            res_t1, _, _ = executar_busca_telefone(t1[:2], t1[2:])
+                            res_t1 = api_client.buscar_telefone(t1[:2], t1[2:])
                             st.session_state.graph_cache_contatos_empresas[t1] = res_t1 or []
 
                 # Compilação das Empresas da Rede para Inteligência
                 all_cluster_companies = [dados] + list(st.session_state.multi_expanded_companies.values())
-                if st.session_state.graph_expand_socios:
+                if st.session_state.get('graph_expand_socios'):
                     for comp_list in st.session_state.graph_cache_socios_empresas.values():
                         all_cluster_companies.extend(comp_list)
                 for comp_list in st.session_state.multi_expanded_socios.values():
                     all_cluster_companies.extend(comp_list)
-                if st.session_state.graph_expand_contacts:
+                if st.session_state.get('graph_expand_contacts'):
                     for comp_list in st.session_state.graph_cache_contatos_empresas.values():
                         all_cluster_companies.extend(comp_list)
                 for comp_list in st.session_state.multi_expanded_phones.values():
@@ -724,19 +651,10 @@ elif st.session_state.view == 'DETAILS':
 
                 # Execução dos Motores de Inteligência
                 risk_info = risk_analyzer.analyze_company_risk(dados)
-                
-                shared_addresses = {}
-                if st.session_state.enable_shared_addresses:
-                    shared_addresses = risk_analyzer.detect_shared_addresses(all_cluster_companies)
-
-                family_relationships = []
-                if st.session_state.enable_family_detection:
-                    family_relationships = risk_analyzer.detect_family_relationships(dados.get('socios', []))
-
-                ubos = []
-                if st.session_state.enable_ubo_detection:
-                    ubo_result = risk_analyzer.trace_ultimate_beneficial_owners(cnpj, dados, api_client)
-                    ubos = ubo_result.get('ubos', [])
+                shared_addresses = risk_analyzer.detect_shared_addresses(all_cluster_companies)
+                family_relationships = risk_analyzer.detect_family_relationships(dados.get('socios', []))
+                ubo_result = risk_analyzer.trace_ultimate_beneficial_owners(cnpj, dados, api_client)
+                ubos = ubo_result.get('ubos', [])
 
                 # Painel Resumo de Inteligência & Compliance
                 m1, m2, m3, m4 = st.columns(4)
@@ -753,61 +671,14 @@ elif st.session_state.view == 'DETAILS':
                     st.warning("⚠️ **Alertas Detectados:** " + " | ".join(risk_info['risk_flags']))
 
                 # Mescla dicionários de sócios e contatos expandidos
-                merged_socios = dict(st.session_state.graph_cache_socios_empresas) if st.session_state.graph_expand_socios else {}
+                merged_socios = dict(st.session_state.graph_cache_socios_empresas) if st.session_state.get('graph_expand_socios') else {}
                 merged_socios.update(st.session_state.multi_expanded_socios)
 
-                merged_contatos = dict(st.session_state.graph_cache_contatos_empresas) if st.session_state.graph_expand_contacts else {}
+                merged_contatos = dict(st.session_state.graph_cache_contatos_empresas) if st.session_state.get('graph_expand_contacts') else {}
                 merged_contatos.update(st.session_state.multi_expanded_phones)
                 merged_contatos.update(st.session_state.multi_expanded_emails)
 
-                # Elementos da rede
-                _, _, nos_atuais = graph_builder.build_graph_elements(
-                    root_data=dados,
-                    socios_empresas=merged_socios,
-                    contatos_empresas=merged_contatos,
-                    shared_addresses=shared_addresses,
-                    family_relationships=family_relationships,
-                    ubos=ubos,
-                    enable_risk_highlight=st.session_state.enable_risk_highlight,
-                    excluded_nodes=st.session_state.graph_excluded_nodes,
-                    auto_filter_accountants=st.session_state.graph_auto_filter_accountants,
-                    manual_nodes=st.session_state.graph_manual_nodes,
-                    manual_edges=st.session_state.graph_manual_edges,
-                    extra_companies=st.session_state.multi_expanded_companies
-                )
-
-                # Painel de Expansão Rápida da Rede (+) - Posicionado no topo do Grafo
-                st.markdown("##### 🌳 Expansão Dinâmica de Relações (+)")
-                st.caption(
-                    "Passe o mouse sobre qualquer nó no grafo e clique no botão verde **✚**, dê um duplo-clique no nó, "
-                    "ou selecione diretamente abaixo a entidade para expandir suas conexões:"
-                )
-
-                c_exp1, c_exp2 = st.columns([3.2, 1.2])
-                with c_exp1:
-                    opcoes_exp = {}
-                    for n in nos_atuais:
-                        nt = n.get('type', '')
-                        if nt in ("EMPRESA", "EMPRESA_ROOT", "SOCIO", "UBO", "TELEFONE", "EMAIL"):
-                            icone = "🏢" if "EMPRESA" in nt else ("👤" if nt in ("SOCIO", "UBO") else ("📞" if nt == "TELEFONE" else "✉️"))
-                            rotulo = f"{icone} {n['label']} [{nt}]"
-                            opcoes_exp[rotulo] = (nt, n.get('val') or n['id'], n['label'])
-
-                    sel_ent = st.selectbox(
-                        "Entidade da rede para expandir conexões:",
-                        options=list(opcoes_exp.keys()),
-                        index=0 if opcoes_exp else None,
-                        key="sb_expand_entity",
-                        label_visibility="collapsed"
-                    )
-                with c_exp2:
-                    if st.button("✚ Expandir Relações", type="primary", use_container_width=True, disabled=not bool(opcoes_exp)):
-                        if sel_ent and sel_ent in opcoes_exp:
-                            e_type, e_val, e_lbl = opcoes_exp[sel_ent]
-                            executar_expansao_entidade(e_type, e_val, e_lbl)
-                            st.rerun()
-
-                # Renderização do Grafo Interativo com Custom Component (Bidirecional)
+                # Renderização do Grafo Interativo com Custom Component (Todos os botões integrados na janela)
                 try:
                     graph_event, _ = graph_builder.render_interactive_graph(
                         root_data=dados,
@@ -816,12 +687,12 @@ elif st.session_state.view == 'DETAILS':
                         shared_addresses=shared_addresses,
                         family_relationships=family_relationships,
                         ubos=ubos,
-                        enable_risk_highlight=st.session_state.enable_risk_highlight,
+                        enable_risk_highlight=True,
                         excluded_nodes=st.session_state.graph_excluded_nodes,
-                        auto_filter_accountants=st.session_state.graph_auto_filter_accountants,
+                        auto_filter_accountants=False,
                         manual_nodes=st.session_state.graph_manual_nodes,
                         manual_edges=st.session_state.graph_manual_edges,
-                        height=graph_h_int,
+                        height=850,
                         extra_companies=st.session_state.multi_expanded_companies,
                         key=f"interactive_net_{cnpj}"
                     )
@@ -834,18 +705,18 @@ elif st.session_state.view == 'DETAILS':
                         shared_addresses=shared_addresses,
                         family_relationships=family_relationships,
                         ubos=ubos,
-                        enable_risk_highlight=st.session_state.enable_risk_highlight,
+                        enable_risk_highlight=True,
                         excluded_nodes=st.session_state.graph_excluded_nodes,
-                        auto_filter_accountants=st.session_state.graph_auto_filter_accountants,
+                        auto_filter_accountants=False,
                         manual_nodes=st.session_state.graph_manual_nodes,
                         manual_edges=st.session_state.graph_manual_edges,
-                        height=f"{graph_h_int}px",
+                        height="850px",
                         extra_companies=st.session_state.multi_expanded_companies
                     )
-                    components.html(html_code, height=graph_h_int + 20, scrolling=False)
+                    components.html(html_code, height=870, scrolling=False)
                     graph_event = None
 
-                # Processa eventos originados de cliques diretos no grafo (+) e (x)
+                # Processa eventos originados de ações dentro da janela do grafo
                 if graph_event and isinstance(graph_event, dict):
                     nonce = graph_event.get("nonce")
                     if nonce and nonce != st.session_state.get("last_graph_action_nonce"):
@@ -864,6 +735,16 @@ elif st.session_state.view == 'DETAILS':
                                 st.session_state.graph_excluded_nodes.add(node_id)
                                 st.toast("🗑️ Nó removido do grafo.")
                                 st.rerun()
+                        elif act == "toggle_feature":
+                            feat = graph_event.get("feature")
+                            if feat == "expand_socios":
+                                st.session_state.graph_expand_socios = not st.session_state.get('graph_expand_socios', False)
+                                st.toast("👥 Expansão de Sócios (2º Grau) " + ("ativada!" if st.session_state.graph_expand_socios else "desativada."))
+                                st.rerun()
+                            elif feat == "expand_contacts":
+                                st.session_state.graph_expand_contacts = not st.session_state.get('graph_expand_contacts', False)
+                                st.toast("📞 Expansão de Contatos " + ("ativada!" if st.session_state.graph_expand_contacts else "desativada."))
+                                st.rerun()
                         elif act == "clear":
                             st.session_state.graph_excluded_nodes = set()
                             st.session_state.graph_manual_nodes = []
@@ -874,6 +755,8 @@ elif st.session_state.view == 'DETAILS':
                             st.session_state.multi_expanded_socios = {}
                             st.session_state.multi_expanded_phones = {}
                             st.session_state.multi_expanded_emails = {}
+                            st.session_state.graph_expand_socios = False
+                            st.session_state.graph_expand_contacts = False
                             st.toast("🧹 Grafos e conexões limpos.")
                             st.rerun()
 

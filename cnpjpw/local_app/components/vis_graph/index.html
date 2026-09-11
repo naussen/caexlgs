@@ -26,37 +26,73 @@
       width: 100%;
       height: 100%;
       background: #f8f9fa;
-      border: 1px solid #e0e0e0;
+      border: 1px solid #cfd8dc;
       border-radius: 8px;
       overflow: hidden;
     }
-    #toolbar {
-      height: 42px;
-      min-height: 42px;
-      padding: 4px 10px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
+    #toolbar-main {
       background: #ffffff;
       border-bottom: 1px solid #e0e0e0;
-      font-size: 12px;
-      color: #37474f;
-      overflow-x: auto;
-      white-space: nowrap;
+      padding: 6px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
       z-index: 10;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
     }
-    .btn {
-      padding: 4px 10px;
-      border: 1px solid #cfd8dc;
-      border-radius: 5px;
-      background-color: #ffffff;
-      color: #263238;
-      cursor: pointer;
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .secondary-row {
+      border-top: 1px solid #f0f0f0;
+      padding-top: 4px;
       font-size: 11px;
-      font-weight: 500;
+    }
+    .toolbar-section {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toolbar-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #37474f;
       display: inline-flex;
       align-items: center;
       gap: 4px;
+    }
+    .select-entity {
+      padding: 5px 10px;
+      border: 1px solid #b0bec5;
+      border-radius: 6px;
+      font-size: 12px;
+      background-color: #ffffff;
+      color: #263238;
+      outline: none;
+      min-width: 280px;
+      max-width: 380px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .select-entity:focus {
+      border-color: #1976d2;
+      box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.15);
+    }
+    .btn {
+      padding: 5px 10px;
+      border: 1px solid #cfd8dc;
+      border-radius: 6px;
+      background-color: #ffffff;
+      color: #37474f;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
       transition: all 0.15s ease;
       user-select: none;
     }
@@ -64,19 +100,59 @@
       background-color: #eceff1;
       border-color: #b0bec5;
     }
+    .btn-sm {
+      padding: 3px 8px;
+      font-size: 11px;
+    }
+    .btn-primary {
+      background-color: #1976d2;
+      color: #ffffff;
+      border-color: #1565c0;
+      font-weight: 600;
+    }
+    .btn-primary:hover {
+      background-color: #1565c0;
+    }
+    .btn-toggle {
+      background-color: #f1f8e9;
+      border-color: #c5e1a5;
+      color: #33691e;
+    }
+    .btn-toggle:hover {
+      background-color: #dcedc8;
+    }
+    .btn-toggle.btn-active {
+      background-color: #fff3e0;
+      border-color: #ffb74d;
+      color: #e65100;
+      font-weight: 600;
+    }
     .btn-danger {
       color: #c62828;
       border-color: #ffcdd2;
+      background-color: #fff8f8;
     }
     .btn-danger:hover {
       background-color: #ffebee;
       border-color: #ef9a9a;
     }
+    .toolbar-divider {
+      height: 20px;
+      width: 1px;
+      background-color: #cfd8dc;
+      margin: 0 4px;
+    }
+    .toolbar-legend {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-left: auto;
+    }
     .legend-item {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      margin-left: 5px;
       font-size: 11px;
       color: #455a64;
     }
@@ -90,7 +166,6 @@
       position: relative;
       flex: 1;
       width: 100%;
-      height: calc(100% - 42px);
       background-color: #ffffff;
     }
     #network-canvas {
@@ -123,51 +198,95 @@
       padding: 0;
       transition: transform 0.15s ease, background-color 0.15s ease;
     }
-    .btn-expand {
+    .btn-expand-node {
       background-color: #2e7d32;
       color: #ffffff;
       font-size: 14px;
     }
-    .btn-expand:hover {
+    .btn-expand-node:hover {
       transform: scale(1.22);
       background-color: #1b5e20;
     }
-    .btn-delete {
+    .btn-delete-node {
       background-color: #d32f2f;
       color: #ffffff;
       font-size: 11px;
     }
-    .btn-delete:hover {
+    .btn-delete-node:hover {
       transform: scale(1.22);
       background-color: #b71c1c;
+    }
+    #status-hint {
+      position: absolute;
+      bottom: 8px;
+      left: 12px;
+      background: rgba(255,255,255,0.85);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #546e7a;
+      pointer-events: none;
+      border: 1px solid #e0e0e0;
+      z-index: 5;
     }
   </style>
 </head>
 <body>
   <div id="root-container">
-    <div id="toolbar">
-      <button class="btn" id="fs-toggle" onclick="toggleFullScreen()">⛶ Maximizar</button>
-      <button class="btn" onclick="fitNetwork()">🔍 Enquadrar</button>
-      <button class="btn" id="physics-toggle" onclick="togglePhysics()">⏸️ Pausar</button>
-      <button class="btn btn-danger" onclick="clearGraph()">🧹 Limpar Grafos</button>
-      <button class="btn" onclick="exportImage()">📸 Exportar PNG</button>
-      <span style="border-left: 1px solid #cfd8dc; height: 18px; margin: 0 4px;"></span>
-      <div class="legend-item"><span class="dot" style="background-color: #0D47A1;"></span> Raiz</div>
-      <div class="legend-item"><span class="dot" style="background-color: #1976D2;"></span> Empresa</div>
-      <div class="legend-item"><span class="dot" style="background-color: #D32F2F;"></span> ⚠️ Risco</div>
-      <div class="legend-item"><span class="dot" style="background-color: #E65100;"></span> Sócio</div>
-      <div class="legend-item"><span class="dot" style="background-color: #FBC02D;"></span> 👑 UBO</div>
-      <div class="legend-item"><span class="dot" style="background-color: #00838F;"></span> 📍 Endereço</div>
-      <div class="legend-item"><span class="dot" style="background-color: #2E7D32;"></span> E-mail</div>
-      <div class="legend-item"><span class="dot" style="background-color: #7B1FA2;"></span> Fone</div>
-      <div class="legend-item"><span class="dot" style="background-color: #D81B60;"></span> Manual</div>
+    <div id="toolbar-main">
+      <!-- Linha 1: Controles de Expansão, Busca e Filtros -->
+      <div class="toolbar-row">
+        <div class="toolbar-section">
+          <span class="toolbar-label">🌳 Expansão:</span>
+          <select id="entity-selector" class="select-entity" title="Escolha qualquer entidade da rede para expandir conexões">
+            <option value="">Selecione uma entidade para expandir conexões...</option>
+          </select>
+          <button id="btn-expand-sel" class="btn btn-primary" onclick="expandSelectedEntity()" title="Expandir relações da entidade selecionada">✚ Expandir</button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-section">
+          <button id="btn-toggle-accountants" class="btn btn-toggle" onclick="toggleAccountants()" title="Oculta ou destaca nós de contadores e escritórios contábeis">🧮 Ocultar Contadores</button>
+          <button id="btn-toggle-socios" class="btn btn-toggle" onclick="triggerToggleSocios()" title="Busca empresas vinculadas aos sócios">👥 Sócios 2º Grau</button>
+          <button id="btn-toggle-contacts" class="btn btn-toggle" onclick="triggerToggleContacts()" title="Busca empresas com mesmo telefone ou e-mail">📞 Contatos</button>
+          <button class="btn btn-danger" onclick="clearGraph()" title="Limpar todos os nós da rede para recomeçar">🧹 Limpar</button>
+        </div>
+      </div>
+
+      <!-- Linha 2: Movimentação Livre, Centralização Automática, Ferramentas e Legenda -->
+      <div class="toolbar-row secondary-row">
+        <div class="toolbar-section">
+          <button class="btn btn-sm" onclick="autoCenter(50)" title="Centralizar e ajustar o zoom automaticamente ao tamanho da tela">🔍 Centralizar</button>
+          <button id="btn-free-mode" class="btn btn-sm btn-active" onclick="toggleFreeMoveMode()" title="Ativa a movimentação livre: ao arrastar um nó ele fica exatamente onde você soltar sem voltar">📌 Posição Livre</button>
+          <button id="physics-toggle" class="btn btn-sm" onclick="togglePhysics()" title="Pausar ou reativar a simulação física">⏸️ Pausar Física</button>
+          <button class="btn btn-sm" id="fs-toggle" onclick="toggleFullScreen()" title="Alternar visualização em tela cheia">⛶ Tela Cheia</button>
+          <button class="btn btn-sm" onclick="exportImage()" title="Exportar imagem da rede em alta resolução">📸 Salvar PNG</button>
+        </div>
+
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-legend">
+          <div class="legend-item"><span class="dot" style="background-color: #0D47A1;"></span> Raiz</div>
+          <div class="legend-item"><span class="dot" style="background-color: #1976D2;"></span> Empresa</div>
+          <div class="legend-item"><span class="dot" style="background-color: #D32F2F;"></span> ⚠️ Risco</div>
+          <div class="legend-item"><span class="dot" style="background-color: #E65100;"></span> Sócio</div>
+          <div class="legend-item"><span class="dot" style="background-color: #FBC02D;"></span> 👑 UBO</div>
+          <div class="legend-item"><span class="dot" style="background-color: #00897B; border: 1px solid #004D40;"></span> 🧮 Contador</div>
+          <div class="legend-item"><span class="dot" style="background-color: #2E7D32;"></span> E-mail</div>
+          <div class="legend-item"><span class="dot" style="background-color: #7B1FA2;"></span> Fone</div>
+          <div class="legend-item"><span class="dot" style="background-color: #00838F;"></span> 📍 Endereço</div>
+        </div>
+      </div>
     </div>
+
     <div id="network-wrapper">
       <div id="network-canvas"></div>
       <div id="node-actions-menu">
-        <button id="node-expand-btn" class="node-action-btn btn-expand" title="Expandir relações desta entidade (+)">✚</button>
-        <button id="node-delete-btn" class="node-action-btn btn-delete" title="Excluir nó da visualização (✕)">✕</button>
+        <button id="node-expand-btn" class="node-action-btn btn-expand-node" title="Expandir relações desta entidade (+)">✚</button>
+        <button id="node-delete-btn" class="node-action-btn btn-delete-node" title="Excluir nó da visualização (✕)">✕</button>
       </div>
+      <div id="status-hint">💡 Arraste entidades livremente para organizar. Passe o mouse sobre nós para ver ações ou clique duas vezes para expandir.</div>
     </div>
   </div>
 
@@ -176,15 +295,20 @@
     let nodesDataSet = null;
     let edgesDataSet = null;
     let physicsEnabled = true;
+    let freeMoveEnabled = true;
+    let accountantsHidden = false;
     let activeTargetNode = null;
     let hideTimeout = null;
     let isMouseOverMenu = false;
+    let currentArgs = null;
 
     const actionMenu = document.getElementById('node-actions-menu');
     const expandBtn = document.getElementById('node-expand-btn');
     const delBtn = document.getElementById('node-delete-btn');
     const canvasContainer = document.getElementById('network-canvas');
+    const entitySelector = document.getElementById('entity-selector');
 
+    // Streamlit Component Protocol
     function sendToStreamlit(type, data) {
       window.parent.postMessage({
         isStreamlitMessage: true,
@@ -203,6 +327,20 @@
 
     function sendValue(val) {
       sendToStreamlit("streamlit:setComponentValue", { value: val });
+    }
+
+    // Centralização Automática (Requisito 2)
+    function autoCenter(delay = 100) {
+      setTimeout(function() {
+        if (network) {
+          network.fit({
+            animation: {
+              duration: 650,
+              easingFunction: 'easeInOutQuad'
+            }
+          });
+        }
+      }, delay);
     }
 
     function updateActionMenuPosition(nodeId) {
@@ -230,7 +368,7 @@
           nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
         });
       }
-      actionMenu.style.display = 'none';
+      if (actionMenu) actionMenu.style.display = 'none';
       activeTargetNode = null;
     }
 
@@ -242,8 +380,108 @@
         id: nodeId,
         nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
       });
-      actionMenu.style.display = 'none';
+      if (actionMenu) actionMenu.style.display = 'none';
       activeTargetNode = null;
+      autoCenter(150);
+    }
+
+    function expandSelectedEntity() {
+      if (entitySelector && entitySelector.value) {
+        expandNode(entitySelector.value);
+      } else {
+        alert('Selecione primeiro uma entidade na lista suspensa para expandir.');
+      }
+    }
+
+    // Sinalização e Ocultação de Contadores (Requisito 4)
+    function toggleAccountants() {
+      accountantsHidden = !accountantsHidden;
+      const btn = document.getElementById('btn-toggle-accountants');
+      if (btn) {
+        btn.innerHTML = accountantsHidden ? '🧮 Exibir Contadores' : '🧮 Ocultar Contadores';
+        btn.classList.toggle('btn-active', accountantsHidden);
+      }
+
+      if (nodesDataSet) {
+        const updates = [];
+        nodesDataSet.forEach(function(n) {
+          if (n._is_accountant) {
+            updates.push({ id: n.id, hidden: accountantsHidden });
+          }
+        });
+        nodesDataSet.update(updates);
+      }
+      autoCenter(200);
+    }
+
+    // Liberdade Total de Movimentação (Requisito 3)
+    function toggleFreeMoveMode() {
+      freeMoveEnabled = !freeMoveEnabled;
+      const btn = document.getElementById('btn-free-mode');
+      if (btn) {
+        btn.innerHTML = freeMoveEnabled ? '📌 Posição Livre' : '🔄 Auto-Mola';
+        btn.classList.toggle('btn-active', freeMoveEnabled);
+      }
+      if (!freeMoveEnabled) {
+        // Solta os nós fixados para auto-reorganização
+        const updates = [];
+        nodesDataSet.forEach(function(n) {
+          updates.push({ id: n.id, fixed: { x: false, y: false }, physics: true });
+        });
+        nodesDataSet.update(updates);
+        network.setOptions({ physics: { enabled: true } });
+        network.stabilize(100);
+      }
+    }
+
+    function triggerToggleSocios() {
+      sendValue({
+        action: 'toggle_feature',
+        feature: 'expand_socios',
+        nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+      });
+    }
+
+    function triggerToggleContacts() {
+      sendValue({
+        action: 'toggle_feature',
+        feature: 'expand_contacts',
+        nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+      });
+    }
+
+    function clearGraph() {
+      if (confirm("Deseja realmente limpar todos os nós e recomeçar a investigação da rede?")) {
+        sendValue({
+          action: 'clear',
+          nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+        });
+      }
+    }
+
+    function updateEntitySelector(nodes) {
+      if (!entitySelector) return;
+      const currentVal = entitySelector.value;
+      entitySelector.innerHTML = '<option value="">Selecione uma entidade para expandir conexões...</option>';
+
+      nodes.forEach(function(n) {
+        const nt = n._type || 'OUTRO';
+        if (['EMPRESA', 'EMPRESA_ROOT', 'SOCIO', 'UBO', 'TELEFONE', 'EMAIL', 'CONTABILIDADE'].includes(nt)) {
+          let icon = '🏢';
+          if (n._is_accountant) icon = '🧮';
+          else if (nt.includes('EMPRESA')) icon = '🏢';
+          else if (['SOCIO', 'UBO'].includes(nt)) icon = '👤';
+          else if (nt === 'TELEFONE') icon = '📞';
+          else if (nt === 'EMAIL') icon = '✉️';
+
+          const opt = document.createElement('option');
+          opt.value = n.id;
+          opt.textContent = `${icon} ${n.label || n.id} [${nt}]`;
+          entitySelector.appendChild(opt);
+        }
+      });
+
+      if (currentVal) entitySelector.value = currentVal;
     }
 
     function attachListeners() {
@@ -279,12 +517,16 @@
     }
 
     function initOrUpdateGraph(args) {
+      currentArgs = args;
       const nodesData = args.nodes || [];
       const edgesData = args.edges || [];
-      const heightVal = parseInt(args.height || 750);
+      const heightVal = parseInt(args.height || 850);
 
       document.getElementById('root-container').style.height = heightVal + 'px';
       setFrameHeight(heightVal);
+
+      // Atualiza o seletor de entidades da toolbar
+      updateEntitySelector(nodesData);
 
       const options = args.options || {
         nodes: {
@@ -299,20 +541,24 @@
         physics: {
           enabled: true,
           forceAtlas2Based: {
-            gravitationalConstant: -65,
-            centralGravity: 0.012,
+            gravitationalConstant: -60,
+            centralGravity: 0.01,
             springLength: 130,
-            springStrength: 0.07,
+            springStrength: 0.06,
             damping: 0.45
           },
           solver: 'forceAtlas2Based',
-          stabilization: { iterations: 120 }
+          stabilization: {
+            iterations: 120,
+            updateInterval: 25
+          }
         },
         interaction: {
           hover: true,
           tooltipDelay: 120,
           zoomView: true,
           dragNodes: true,
+          dragView: true,
           navigationButtons: true
         }
       };
@@ -322,6 +568,18 @@
         edgesDataSet = new vis.DataSet(edgesData);
 
         network = new vis.Network(canvasContainer, { nodes: nodesDataSet, edges: edgesDataSet }, options);
+
+        // REQUISITO 2: Centralização Automática no carregamento e na estabilização
+        network.once('stabilizationIterationsDone', function() {
+          autoCenter(50);
+          // Após estabilização inicial, se o modo livre estiver ativo, congela física suavemente
+          if (freeMoveEnabled) {
+            network.setOptions({ physics: { enabled: false } });
+            physicsEnabled = false;
+            const pBtn = document.getElementById('physics-toggle');
+            if (pBtn) pBtn.innerHTML = '▶️ Ativar Física';
+          }
+        });
 
         network.on('hoverNode', function(params) {
           clearTimeout(hideTimeout);
@@ -343,6 +601,8 @@
             clearTimeout(hideTimeout);
             activeTargetNode = params.nodes[0];
             updateActionMenuPosition(activeTargetNode);
+            // Sincroniza o seletor da barra superior com o nó clicado
+            if (entitySelector) entitySelector.value = activeTargetNode;
           }
         });
 
@@ -365,17 +625,33 @@
           if (activeTargetNode) updateActionMenuPosition(activeTargetNode);
         });
 
+        // REQUISITO 3: Liberdade total para movimentar entidades sem que voltem à posição original
+        network.on('dragEnd', function(params) {
+          if (params.nodes && params.nodes.length > 0) {
+            params.nodes.forEach(function(nodeId) {
+              const pos = network.getPosition(nodeId);
+              // Fixa o nó permanentemente na coordenada onde o usuário soltou!
+              nodesDataSet.update({
+                id: nodeId,
+                x: pos.x,
+                y: pos.y,
+                fixed: { x: true, y: true },
+                physics: false
+              });
+            });
+          }
+        });
+
         attachListeners();
       } else {
+        // Atualização incremental preservando nós já posicionados
         nodesDataSet.clear();
         nodesDataSet.add(nodesData);
         edgesDataSet.clear();
         edgesDataSet.add(edgesData);
+        // Centraliza automaticamente após adição de novos dados
+        autoCenter(250);
       }
-    }
-
-    function fitNetwork() {
-      if (network) network.fit({ animation: true });
     }
 
     function togglePhysics() {
@@ -383,16 +659,7 @@
       physicsEnabled = !physicsEnabled;
       network.setOptions({ physics: { enabled: physicsEnabled } });
       const btn = document.getElementById('physics-toggle');
-      btn.innerHTML = physicsEnabled ? '⏸️ Pausar' : '▶️ Ativar';
-    }
-
-    function clearGraph() {
-      if (confirm("Deseja realmente limpar todos os nós e recomeçar a investigação da rede?")) {
-        sendValue({
-          action: 'clear',
-          nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
-        });
-      }
+      btn.innerHTML = physicsEnabled ? '⏸️ Pausar Física' : '▶️ Ativar Física';
     }
 
     function toggleFullScreen() {
@@ -409,10 +676,8 @@
     function handleFsChange() {
       const isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
       const btn = document.getElementById('fs-toggle');
-      if (btn) btn.innerHTML = isFs ? '🗗 Restaurar' : '⛶ Maximizar';
-      setTimeout(function() {
-        if (network) network.fit({ animation: true });
-      }, 300);
+      if (btn) btn.innerHTML = isFs ? '🗗 Restaurar' : '⛶ Tela Cheia';
+      autoCenter(300);
     }
     document.addEventListener('fullscreenchange', handleFsChange);
     document.addEventListener('webkitfullscreenchange', handleFsChange);
