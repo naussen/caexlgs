@@ -394,13 +394,17 @@ def get_cnpj(cnpj: str, snapshot_date: str = "2026-01-11") -> Optional[dict]:
 
     import re
     cnpj_clean = re.sub(r'\D', '', str(cnpj or ''))
-    if len(cnpj_clean) != 14:
-        _last_error = f"CNPJ inválido: deve conter 14 dígitos (recebido: {cnpj_clean})"
+    if len(cnpj_clean) == 8:
+        cnpj_basico = cnpj_clean
+        filter_clause = f"e.cnpj_basico = '{cnpj_basico}'"
+    elif len(cnpj_clean) == 14:
+        cnpj_basico = cnpj_clean[:8]
+        cnpj_ordem = cnpj_clean[8:12]
+        cnpj_dv = cnpj_clean[12:14]
+        filter_clause = f"e.cnpj_basico = '{cnpj_basico}' AND e.cnpj_ordem = '{cnpj_ordem}' AND e.cnpj_dv = '{cnpj_dv}'"
+    else:
+        _last_error = f"CNPJ inválido: deve conter 8 ou 14 dígitos (recebido: {cnpj_clean})"
         return None
-
-    cnpj_basico = cnpj_clean[:8]
-    cnpj_ordem = cnpj_clean[8:12]
-    cnpj_dv = cnpj_clean[12:14]
 
     try:
         client = _get_client()
@@ -424,8 +428,9 @@ def get_cnpj(cnpj: str, snapshot_date: str = "2026-01-11") -> Optional[dict]:
         FROM basedosdados.br_me_cnpj.estabelecimentos e
         LEFT JOIN basedosdados.br_me_cnpj.empresas em
           ON e.cnpj_basico = em.cnpj_basico AND em.data = '{snapshot_date}'
-        WHERE e.cnpj_basico = '{cnpj_basico}' AND e.cnpj_ordem = '{cnpj_ordem}' AND e.cnpj_dv = '{cnpj_dv}'
+        WHERE {filter_clause}
           AND e.data = '{snapshot_date}'
+        ORDER BY e.cnpj_ordem ASC
         LIMIT 1
         """
         rows_emp = list(client.query(q_emp).result())

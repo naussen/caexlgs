@@ -69,6 +69,14 @@ if 'graph_cache_socios_empresas' not in st.session_state:
     st.session_state.graph_cache_socios_empresas = {}
 if 'graph_cache_contatos_empresas' not in st.session_state:
     st.session_state.graph_cache_contatos_empresas = {}
+if 'multi_expanded_companies' not in st.session_state:
+    st.session_state.multi_expanded_companies = {}
+if 'multi_expanded_socios' not in st.session_state:
+    st.session_state.multi_expanded_socios = {}
+if 'multi_expanded_phones' not in st.session_state:
+    st.session_state.multi_expanded_phones = {}
+if 'multi_expanded_emails' not in st.session_state:
+    st.session_state.multi_expanded_emails = {}
 if 'investigation_notes' not in st.session_state:
     st.session_state.investigation_notes = ""
 if 'enable_risk_highlight' not in st.session_state:
@@ -190,7 +198,7 @@ else:
     if custom_url:
         api_client.set_base_url(custom_url)
 
-# Configuração BigQuery
+# Configuração BigQuery (Integrada e Segura)
 st.sidebar.divider()
 st.sidebar.subheader("☁️ Google BigQuery")
 st.session_state.use_bigquery_for_contacts = st.sidebar.checkbox(
@@ -202,28 +210,10 @@ st.session_state.use_bigquery_for_contacts = st.sidebar.checkbox(
 is_bq_active = st.session_state.use_bigquery_for_contacts or api_client.is_bigquery_mode()
 
 if is_bq_active:
-    # Garante inicialização das credenciais
+    # Garante inicialização das credenciais em segundo plano (integradas com sigilo)
     bigquery_client.set_project_id(st.session_state.bq_project_id)
     bigquery_client.set_credentials_path(st.session_state.bq_credentials_path)
-    proj_input = st.sidebar.text_input(
-        "ID do Projeto Google Cloud:",
-        value=st.session_state.bq_project_id,
-        placeholder="ex: meu-projeto-gcp",
-        help="Informe o ID do seu projeto no Google Cloud Platform com a API BigQuery habilitada."
-    )
-    if proj_input != st.session_state.bq_project_id:
-        st.session_state.bq_project_id = proj_input
-        bigquery_client.set_project_id(proj_input)
-
-    cred_input = st.sidebar.text_input(
-        "Arquivo de Chave JSON (opcional):",
-        value=st.session_state.bq_credentials_path,
-        placeholder="C:/caminho/service_account.json",
-        help="Opcional se já estiver autenticado via gcloud auth ou com variável de ambiente configurada."
-    )
-    if cred_input != st.session_state.bq_credentials_path:
-        st.session_state.bq_credentials_path = cred_input
-        bigquery_client.set_credentials_path(cred_input)
+    st.sidebar.caption("🔒 **Credenciais Integradas (Sigilo Total)**")
 
     bq_months = st.sidebar.select_slider(
         "Janela de busca (meses recentes):",
@@ -552,12 +542,70 @@ elif st.session_state.view == 'DETAILS':
                 st.write(dados.get('cnae_fiscal_principal_descricao', 'Não informada'))
 
             with tab_grafo:
+                # Função para executar expansão de qualquer entidade (Pessoa Física, Jurídica, Telefone, E-mail)
+                def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = ""):
+                    if ent_type in ("EMPRESA", "EMPRESA_ROOT"):
+                        cnpj_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
+                        if cnpj_limpo:
+                            if cnpj_limpo not in st.session_state.multi_expanded_companies:
+                                with st.spinner(f"Consultando dados e conexões da empresa {ent_label or cnpj_limpo}..."):
+                                    emp_dados = api_client.get_cnpj(cnpj_limpo)
+                                    if emp_dados and not emp_dados.get('erro'):
+                                        st.session_state.multi_expanded_companies[cnpj_limpo] = emp_dados
+                                        st.toast(f"✅ Relações de {emp_dados.get('nome_empresarial') or cnpj_limpo} expandidas com sucesso!")
+                                    else:
+                                        st.warning(f"Não foi possível obter dados para o CNPJ {cnpj_limpo}.")
+                            else:
+                                st.info("As conexões desta empresa já estão expandidas na rede.")
+                    elif ent_type in ("SOCIO", "UBO"):
+                        socio_nome = str(ent_val or '').strip()
+                        if socio_nome:
+                            if socio_nome not in st.session_state.multi_expanded_socios:
+                                with st.spinner(f"Buscando empresas vinculadas ao sócio {socio_nome}..."):
+                                    res_soc = api_client.buscar_empresas_do_socio(socio_nome)
+                                    st.session_state.multi_expanded_socios[socio_nome] = res_soc or []
+                                    st.toast(f"✅ {len(res_soc or [])} empresa(s) do sócio {socio_nome} adicionada(s) à rede!")
+                            else:
+                                st.info("As empresas deste sócio já estão expandidas na rede.")
+                    elif ent_type == "TELEFONE":
+                        fone_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
+                        if len(fone_limpo) >= 8:
+                            if fone_limpo not in st.session_state.multi_expanded_phones:
+                                ddd = fone_limpo[:2]
+                                num = fone_limpo[2:]
+                                with st.spinner(f"Buscando empresas com telefone ({ddd}) {num}..."):
+                                    res_tel = api_client.buscar_telefone(ddd, num)
+                                    st.session_state.multi_expanded_phones[fone_limpo] = res_tel or []
+                                    st.toast(f"✅ {len(res_tel or [])} empresa(s) com telefone ({ddd}) {num} adicionada(s)!")
+                            else:
+                                st.info("As empresas deste telefone já estão expandidas na rede.")
+                    elif ent_type == "EMAIL":
+                        em_limpo = str(ent_val or '').strip().lower()
+                        if em_limpo:
+                            if em_limpo not in st.session_state.multi_expanded_emails:
+                                with st.spinner(f"Buscando empresas com e-mail {em_limpo}..."):
+                                    res_em = api_client.buscar_email(em_limpo)
+                                    st.session_state.multi_expanded_emails[em_limpo] = res_em or []
+                                    st.toast(f"✅ {len(res_em or [])} empresa(s) com e-mail {em_limpo} adicionada(s)!")
+                            else:
+                                st.info("As empresas deste e-mail já estão expandidas na rede.")
+
+                # Verifica se veio requisição de expansão pela URL (ao clicar no botão ✚ sobre o nó)
+                if "expand_type" in st.query_params and "expand_val" in st.query_params:
+                    q_type = st.query_params.get("expand_type")
+                    q_val = st.query_params.get("expand_val")
+                    q_lbl = st.query_params.get("expand_label", q_val)
+                    st.query_params.clear()
+                    executar_expansao_entidade(q_type, q_val, q_lbl)
+                    st.rerun()
+
                 col_g_title, col_g_size = st.columns([3, 1.5])
                 with col_g_title:
                     st.write("### 🕸️ Grafo Interativo de Relacionamentos")
                     st.caption(
                         "Explore a rede de vínculos societários e contatos da empresa. "
-                        "Arraste nós com o mouse, use a roda para zoom ou clique em **⛶ Tela Cheia** para maximizar."
+                        "Passe o mouse sobre os nós para ver ações (botão **✚** para expandir relações, botão **✕** para excluir). "
+                        "Arraste nós, use o zoom ou clique em **⛶ Maximizar**."
                     )
                 with col_g_size:
                     graph_height_str = st.select_slider(
@@ -595,6 +643,10 @@ elif st.session_state.view == 'DETAILS':
                         st.session_state.graph_manual_edges = []
                         st.session_state.graph_cache_socios_empresas = {}
                         st.session_state.graph_cache_contatos_empresas = {}
+                        st.session_state.multi_expanded_companies = {}
+                        st.session_state.multi_expanded_socios = {}
+                        st.session_state.multi_expanded_phones = {}
+                        st.session_state.multi_expanded_emails = {}
                         st.session_state.investigation_notes = ""
                         st.session_state.graph_expand_socios = False
                         st.session_state.graph_expand_contacts = False
@@ -652,13 +704,19 @@ elif st.session_state.view == 'DETAILS':
                             st.session_state.graph_cache_contatos_empresas[t1] = res_t1 or []
 
                 # Compilação das Empresas da Rede para Inteligência
-                all_cluster_companies = [dados]
+                all_cluster_companies = [dados] + list(st.session_state.multi_expanded_companies.values())
                 if st.session_state.graph_expand_socios:
                     for comp_list in st.session_state.graph_cache_socios_empresas.values():
                         all_cluster_companies.extend(comp_list)
+                for comp_list in st.session_state.multi_expanded_socios.values():
+                    all_cluster_companies.extend(comp_list)
                 if st.session_state.graph_expand_contacts:
                     for comp_list in st.session_state.graph_cache_contatos_empresas.values():
                         all_cluster_companies.extend(comp_list)
+                for comp_list in st.session_state.multi_expanded_phones.values():
+                    all_cluster_companies.extend(comp_list)
+                for comp_list in st.session_state.multi_expanded_emails.values():
+                    all_cluster_companies.extend(comp_list)
 
                 # Execução dos Motores de Inteligência
                 risk_info = risk_analyzer.analyze_company_risk(dados)
@@ -690,11 +748,19 @@ elif st.session_state.view == 'DETAILS':
                 if risk_info.get('risk_flags'):
                     st.warning("⚠️ **Alertas Detectados:** " + " | ".join(risk_info['risk_flags']))
 
+                # Mescla dicionários de sócios e contatos expandidos
+                merged_socios = dict(st.session_state.graph_cache_socios_empresas) if st.session_state.graph_expand_socios else {}
+                merged_socios.update(st.session_state.multi_expanded_socios)
+
+                merged_contatos = dict(st.session_state.graph_cache_contatos_empresas) if st.session_state.graph_expand_contacts else {}
+                merged_contatos.update(st.session_state.multi_expanded_phones)
+                merged_contatos.update(st.session_state.multi_expanded_emails)
+
                 # Constrói o HTML do Grafo com Vis.js
                 html_code, nos_atuais = graph_builder.build_graph_html(
                     root_data=dados,
-                    socios_empresas=st.session_state.graph_cache_socios_empresas if st.session_state.graph_expand_socios else {},
-                    contatos_empresas=st.session_state.graph_cache_contatos_empresas if st.session_state.graph_expand_contacts else {},
+                    socios_empresas=merged_socios,
+                    contatos_empresas=merged_contatos,
                     shared_addresses=shared_addresses,
                     family_relationships=family_relationships,
                     ubos=ubos,
@@ -703,11 +769,40 @@ elif st.session_state.view == 'DETAILS':
                     auto_filter_accountants=st.session_state.graph_auto_filter_accountants,
                     manual_nodes=st.session_state.graph_manual_nodes,
                     manual_edges=st.session_state.graph_manual_edges,
-                    height=f"{graph_h_int}px"
+                    height=f"{graph_h_int}px",
+                    extra_companies=st.session_state.multi_expanded_companies
                 )
 
                 # Renderização do Grafo Interativo Vis.js
                 components.html(html_code, height=graph_h_int + 20, scrolling=False)
+
+                # Painel de Expansão Rápida da Rede (+)
+                st.markdown("##### 🌳 Expansão Dinâmica de Relações (+)")
+                st.caption("Passe o mouse sobre qualquer nó e clique no botão verde **✚**, ou selecione abaixo a entidade para expandir suas ramificações:")
+
+                c_exp1, c_exp2 = st.columns([3.2, 1.2])
+                with c_exp1:
+                    opcoes_exp = {}
+                    for n in nos_atuais:
+                        nt = n.get('type', '')
+                        if nt in ("EMPRESA", "EMPRESA_ROOT", "SOCIO", "UBO", "TELEFONE", "EMAIL"):
+                            icone = "🏢" if "EMPRESA" in nt else ("👤" if nt in ("SOCIO", "UBO") else ("📞" if nt == "TELEFONE" else "✉️"))
+                            rotulo = f"{icone} {n['label']} [{nt}]"
+                            opcoes_exp[rotulo] = (nt, n.get('val') or n['id'], n['label'])
+
+                    sel_ent = st.selectbox(
+                        "Entidade da rede para expandir conexões:",
+                        options=list(opcoes_exp.keys()),
+                        index=0 if opcoes_exp else None,
+                        key="sb_expand_entity",
+                        label_visibility="collapsed"
+                    )
+                with c_exp2:
+                    if st.button("✚ Expandir Conexões", type="primary", use_container_width=True, disabled=not bool(opcoes_exp)):
+                        if sel_ent and sel_ent in opcoes_exp:
+                            e_type, e_val, e_lbl = opcoes_exp[sel_ent]
+                            executar_expansao_entidade(e_type, e_val, e_lbl)
+                            st.rerun()
 
                 st.divider()
 

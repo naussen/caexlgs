@@ -54,7 +54,8 @@ def build_graph_html(
     auto_filter_accountants: bool = False,
     manual_nodes: list = None,
     manual_edges: list = None,
-    height: str = "750px"
+    height: str = "750px",
+    extra_companies: dict = None
 ) -> tuple[str, list[dict]]:
     """
     Constrói a rede e retorna o HTML com Vis.js interativo e a lista de nós gerados.
@@ -75,13 +76,15 @@ def build_graph_html(
         manual_nodes = []
     if manual_edges is None:
         manual_edges = []
+    if extra_companies is None:
+        extra_companies = {}
 
     ubo_names = {u.get('nome', '').strip().lower() for u in ubos if u.get('nome')}
 
     nodes_dict = {}
     edges_list = []
 
-    def add_node(node_id: str, label: str, title: str, color: str, size: int, shape: str = "dot", node_type: str = "OUTRO", border_color: str = None):
+    def add_node(node_id: str, label: str, title: str, color: str, size: int, shape: str = "dot", node_type: str = "OUTRO", border_color: str = None, raw_val: str = ""):
         if node_id in excluded_nodes:
             return False
         if auto_filter_accountants and is_probable_accountant(label, title):
@@ -102,7 +105,8 @@ def build_graph_html(
                 "font": {"color": "#212121", "size": 12, "face": "Roboto, Segoe UI, sans-serif"},
                 "shadow": True,
                 "_type": node_type,
-                "_raw_label": label
+                "_raw_label": label,
+                "_raw_val": raw_val or node_id
             }
         return True
 
@@ -169,7 +173,8 @@ def build_graph_html(
         color=root_color,
         size=36,
         shape="dot",
-        node_type="EMPRESA_ROOT"
+        node_type="EMPRESA_ROOT",
+        raw_val=root_cnpj
     )
 
     # 2. Sócios e Empresas Vinculadas
@@ -199,7 +204,8 @@ def build_graph_html(
             color=socio_color,
             size=24 if is_ubo else 21,
             shape="dot",
-            node_type="UBO" if is_ubo else "SOCIO"
+            node_type="UBO" if is_ubo else "SOCIO",
+            raw_val=nome_socio
         ):
             add_edge(root_id, socio_id, label=qualif[:16])
 
@@ -227,7 +233,8 @@ def build_graph_html(
                         color=emp_color,
                         size=24,
                         shape="dot",
-                        node_type="EMPRESA"
+                        node_type="EMPRESA",
+                        raw_val=emp_cnpj
                     ):
                         add_edge(socio_id, emp_id, label="Participação")
 
@@ -244,7 +251,8 @@ def build_graph_html(
             color=COLOR_EMAIL,
             size=18,
             shape="diamond",
-            node_type="EMAIL"
+            node_type="EMAIL",
+            raw_val=email_clean
         ):
             add_edge(root_id, email_id, label="e-mail")
 
@@ -268,7 +276,8 @@ def build_graph_html(
                         color=emp_color,
                         size=22,
                         shape="dot",
-                        node_type="EMPRESA"
+                        node_type="EMPRESA",
+                        raw_val=emp_cnpj
                     ):
                         add_edge(email_id, emp_id, label="mesmo e-mail")
 
@@ -283,7 +292,8 @@ def build_graph_html(
             color=COLOR_TELEFONE,
             size=18,
             shape="diamond",
-            node_type="TELEFONE"
+            node_type="TELEFONE",
+            raw_val=tel1
         ):
             add_edge(root_id, tel_id, label="telefone")
 
@@ -307,7 +317,8 @@ def build_graph_html(
                         color=emp_color,
                         size=22,
                         shape="dot",
-                        node_type="EMPRESA"
+                        node_type="EMPRESA",
+                        raw_val=emp_cnpj
                     ):
                         add_edge(tel_id, emp_id, label="mesmo fone")
 
@@ -325,7 +336,8 @@ def build_graph_html(
             color=COLOR_ENDERECO,
             size=22,
             shape="hexagon",
-            node_type="ENDERECO"
+            node_type="ENDERECO",
+            raw_val=addr_key
         ):
             for comp in comps:
                 c_cnpj = comp.get('cnpj') or comp.get('cnpj_basico') or ''
@@ -368,7 +380,8 @@ def build_graph_html(
             color=m_color,
             size=26,
             shape=m_shape,
-            node_type=m_type
+            node_type=m_type,
+            raw_val=m_label
         )
 
     # 7. Vínculos Manuais
@@ -377,6 +390,70 @@ def build_graph_html(
         dst = me.get('to')
         lbl = me.get('label', 'Vínculo Manual')
         add_edge(src, dst, label=lbl, manual=True)
+
+    # 8. Empresas Expandidas Dinamicamente (extra_companies)
+    for ext_cnpj, ext_emp in extra_companies.items():
+        ext_nome = ext_emp.get('nome_empresarial') or ext_emp.get('razao_social') or f"CNPJ {ext_cnpj}"
+        ext_id = f"cnpj_{ext_cnpj}"
+        ext_sit = (ext_emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
+        is_ext_risk = enable_risk_highlight and (ext_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
+        ext_color = COLOR_EMPRESA_RISK if is_ext_risk else COLOR_EMPRESA_LINK
+        ext_prefix = "⚠️ " if is_ext_risk else ""
+
+        ext_tooltip = (
+            f"<b>🏢 {ext_nome}</b><br>"
+            f"CNPJ: {ext_cnpj}<br>"
+            f"Situação: {ext_sit}<br>"
+            f"CNAE: {ext_emp.get('cnae_fiscal_principal_descricao', 'N/A')}"
+        )
+        if is_ext_risk:
+            ext_tooltip += f"<br><font color='#D32F2F'><b>⚠️ ALERTA: Situação {ext_sit}</b></font>"
+
+        add_node(
+            ext_id,
+            label=f"{ext_prefix}{ext_nome[:18]}" + ("..." if len(ext_nome) > 18 else ""),
+            title=ext_tooltip,
+            color=ext_color,
+            size=26,
+            shape="dot",
+            node_type="EMPRESA",
+            raw_val=ext_cnpj
+        )
+
+        # Sócios da empresa expandida
+        for es in ext_emp.get('socios', []):
+            es_nome = (es.get('nome') or "").strip()
+            if es_nome:
+                es_id = f"socio_{es_nome.lower()}"
+                es_qualif = es.get('qualificacao_descricao') or es.get('qualificacao_socio_descricao') or "Sócio"
+                es_doc = es.get('cnpj_cpf') or ""
+                es_tooltip = f"<b>👤 {es_nome}</b><br>Qualificação: {es_qualif}<br>Documento: {es_doc}"
+                if add_node(
+                    es_id,
+                    label=es_nome[:18] + ("..." if len(es_nome) > 18 else ""),
+                    title=es_tooltip,
+                    color=COLOR_SOCIO,
+                    size=21,
+                    shape="dot",
+                    node_type="SOCIO",
+                    raw_val=es_nome
+                ):
+                    add_edge(ext_id, es_id, label=es_qualif[:16])
+
+        # E-mail da empresa expandida
+        ext_em = ext_emp.get('correio_eletronico')
+        if ext_em and "@" in ext_em:
+            em_clean = ext_em.strip().lower()
+            em_id = f"email_{em_clean}"
+            if add_node(em_id, label=em_clean[:20], title=f"<b>✉️ E-mail:</b> {em_clean}", color=COLOR_EMAIL, size=18, shape="diamond", node_type="EMAIL", raw_val=em_clean):
+                add_edge(ext_id, em_id, label="e-mail")
+
+        # Telefone da empresa expandida
+        ext_tel = f"{ext_emp.get('ddd1', '') or ''}{ext_emp.get('telefone_1', '') or ''}".strip()
+        if len(ext_tel) > 2:
+            t_id = f"tel_{ext_tel}"
+            if add_node(t_id, label=f"({ext_tel[:2]}) {ext_tel[2:]}", title=f"<b>📞 Telefone:</b> {ext_tel}", color=COLOR_TELEFONE, size=18, shape="diamond", node_type="TELEFONE", raw_val=ext_tel):
+                add_edge(ext_id, t_id, label="telefone")
 
     # Serialização para o template Vis.js
     nodes_json = json.dumps(list(nodes_dict.values()), ensure_ascii=False)
@@ -410,29 +487,48 @@ def build_graph_html(
           border-radius: 8px;
           background-color: #ffffff;
         }}
-        #node-delete-btn {{
+        #node-actions-menu {{
           display: none;
           position: absolute;
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background-color: #d32f2f;
-          color: #ffffff;
-          border: 1.5px solid #ffffff;
-          font-size: 11px;
-          font-weight: 900;
-          font-family: Arial, sans-serif;
-          line-height: 17px;
-          text-align: center;
-          cursor: pointer;
-          box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+          gap: 5px;
+          align-items: center;
+          background: rgba(255, 255, 255, 0.96);
+          padding: 3px 6px;
+          border-radius: 16px;
+          box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+          border: 1px solid #b0bec5;
           z-index: 1000;
-          padding: 0;
-          transition: transform 0.15s ease, background-color 0.15s ease;
           user-select: none;
         }}
-        #node-delete-btn:hover {{
-          transform: scale(1.25);
+        .node-action-btn {{
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          border: none;
+          font-family: Arial, sans-serif;
+          font-weight: 900;
+          line-height: 22px;
+          text-align: center;
+          cursor: pointer;
+          padding: 0;
+          transition: transform 0.15s ease, background-color 0.15s ease;
+        }}
+        .btn-expand {{
+          background-color: #2e7d32;
+          color: #ffffff;
+          font-size: 14px;
+        }}
+        .btn-expand:hover {{
+          transform: scale(1.22);
+          background-color: #1b5e20;
+        }}
+        .btn-delete {{
+          background-color: #d32f2f;
+          color: #ffffff;
+          font-size: 11px;
+        }}
+        .btn-delete:hover {{
+          transform: scale(1.22);
           background-color: #b71c1c;
         }}
         #toolbar {{
@@ -505,7 +601,10 @@ def build_graph_html(
       </div>
       <div id="network-wrapper">
         <div id="network-container"></div>
-        <button id="node-delete-btn" title="Excluir este nó da visualização (✕)">✕</button>
+        <div id="node-actions-menu">
+          <button id="node-expand-btn" class="node-action-btn btn-expand" title="Expandir relações desta entidade (+)">✚</button>
+          <button id="node-delete-btn" class="node-action-btn btn-delete" title="Excluir este nó da visualização (✕)">✕</button>
+        </div>
       </div>
 
       <script type="text/javascript">
@@ -513,10 +612,12 @@ def build_graph_html(
         var edges = new vis.DataSet({edges_json});
 
         var container = document.getElementById('network-container');
+        var actionMenu = document.getElementById('node-actions-menu');
+        var expandBtn = document.getElementById('node-expand-btn');
         var delBtn = document.getElementById('node-delete-btn');
         var activeTargetNode = null;
         var hideTimeout = null;
-        var isMouseOverBtn = false;
+        var isMouseOverMenu = false;
 
         var data = {{
           nodes: nodes,
@@ -556,70 +657,97 @@ def build_graph_html(
         var network = new vis.Network(container, data, options);
         var physicsEnabled = true;
 
-        function updateDeleteBtnPosition(nodeId) {{
+        function updateActionMenuPosition(nodeId) {{
           try {{
             var pos = network.getPosition(nodeId);
             var domPos = network.canvasToDOM(pos);
-            delBtn.style.left = (domPos.x + 12) + 'px';
-            delBtn.style.top = (domPos.y - 18) + 'px';
-            delBtn.style.display = 'block';
+            actionMenu.style.left = (domPos.x - 24) + 'px';
+            actionMenu.style.top = (domPos.y - 34) + 'px';
+            actionMenu.style.display = 'flex';
           }} catch (e) {{
-            delBtn.style.display = 'none';
+            actionMenu.style.display = 'none';
           }}
         }}
 
         network.on('hoverNode', function(params) {{
           clearTimeout(hideTimeout);
           activeTargetNode = params.node;
-          updateDeleteBtnPosition(params.node);
+          updateActionMenuPosition(params.node);
         }});
 
         network.on('blurNode', function(params) {{
           hideTimeout = setTimeout(function() {{
-            if (!isMouseOverBtn) {{
-              delBtn.style.display = 'none';
+            if (!isMouseOverMenu) {{
+              actionMenu.style.display = 'none';
               activeTargetNode = null;
             }}
-          }}, 350);
+          }}, 450);
         }});
 
         network.on('selectNode', function(params) {{
           if (params.nodes.length > 0) {{
             clearTimeout(hideTimeout);
             activeTargetNode = params.nodes[0];
-            updateDeleteBtnPosition(activeTargetNode);
+            updateActionMenuPosition(activeTargetNode);
           }}
         }});
 
         network.on('deselectNode', function() {{
-          delBtn.style.display = 'none';
+          actionMenu.style.display = 'none';
           activeTargetNode = null;
         }});
 
         network.on('dragging', function() {{
-          if (activeTargetNode) updateDeleteBtnPosition(activeTargetNode);
+          if (activeTargetNode) updateActionMenuPosition(activeTargetNode);
         }});
 
         network.on('zoom', function() {{
-          if (activeTargetNode) updateDeleteBtnPosition(activeTargetNode);
+          if (activeTargetNode) updateActionMenuPosition(activeTargetNode);
         }});
 
-        delBtn.addEventListener('mouseenter', function() {{
-          isMouseOverBtn = true;
+        actionMenu.addEventListener('mouseenter', function() {{
+          isMouseOverMenu = true;
           clearTimeout(hideTimeout);
         }});
 
-        delBtn.addEventListener('mouseleave', function() {{
-          isMouseOverBtn = false;
-          delBtn.style.display = 'none';
+        actionMenu.addEventListener('mouseleave', function() {{
+          isMouseOverMenu = false;
+          actionMenu.style.display = 'none';
           activeTargetNode = null;
+        }});
+
+        expandBtn.addEventListener('click', function(e) {{
+          e.stopPropagation();
+          if (activeTargetNode) {{
+            var nodeObj = nodes.get(activeTargetNode);
+            if (nodeObj) {{
+              var nType = nodeObj._type || 'OUTRO';
+              var nVal = nodeObj._raw_val || nodeObj.id;
+              var nLabel = nodeObj.label || nodeObj._raw_label || nVal;
+              
+              try {{
+                var pLoc = window.parent.location;
+                var cleanHref = pLoc.href.split('?')[0];
+                pLoc.href = cleanHref + '?expand_type=' + encodeURIComponent(nType) + '&expand_val=' + encodeURIComponent(nVal) + '&expand_label=' + encodeURIComponent(nLabel);
+              }} catch(err) {{
+                window.parent.postMessage({{
+                  type: 'streamlit:expand',
+                  nodeType: nType,
+                  nodeVal: nVal,
+                  nodeLabel: nLabel
+                }}, '*');
+              }}
+            }}
+            actionMenu.style.display = 'none';
+            activeTargetNode = null;
+          }}
         }});
 
         delBtn.addEventListener('click', function(e) {{
           e.stopPropagation();
           if (activeTargetNode) {{
             nodes.remove(activeTargetNode);
-            delBtn.style.display = 'none';
+            actionMenu.style.display = 'none';
             activeTargetNode = null;
           }}
         }});
@@ -630,7 +758,7 @@ def build_graph_html(
             var sel = network.getSelectedNodes();
             if (sel && sel.length > 0) {{
               nodes.remove(sel);
-              delBtn.style.display = 'none';
+              actionMenu.style.display = 'none';
               activeTargetNode = null;
             }}
           }}
@@ -640,7 +768,7 @@ def build_graph_html(
           if (confirm("Deseja realmente limpar todos os nós do grafo visual?")) {{
             nodes.clear();
             edges.clear();
-            if (delBtn) delBtn.style.display = 'none';
+            if (actionMenu) actionMenu.style.display = 'none';
           }}
         }}
 
@@ -702,7 +830,7 @@ def build_graph_html(
     """
     
     available_nodes = [
-        {"id": n["id"], "label": n["_raw_label"], "type": n["_type"]}
+        {"id": n["id"], "label": n["_raw_label"], "type": n["_type"], "val": n.get("_raw_val", n["id"])}
         for n in nodes_dict.values()
     ]
     return html_template, available_nodes
