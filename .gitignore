@@ -31,6 +31,7 @@ dist/
 *.log
 .system_generated/
 scratch/
+scratch_*.py
 
 # Sistema Operacional
 .DS_Store

@@ -571,8 +571,12 @@ elif st.session_state.view == 'DETAILS':
                         fone_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
                         if len(fone_limpo) >= 8:
                             if fone_limpo not in st.session_state.multi_expanded_phones:
-                                ddd = fone_limpo[:2]
-                                num = fone_limpo[2:]
+                                if len(fone_limpo) in (10, 11):
+                                    ddd = fone_limpo[:2]
+                                    num = fone_limpo[2:]
+                                else:
+                                    ddd = str(dados.get('ddd1') or dados.get('ddd_1') or '11')
+                                    num = fone_limpo
                                 with st.spinner(f"Buscando empresas com telefone ({ddd}) {num}..."):
                                     res_tel = api_client.buscar_telefone(ddd, num)
                                     st.session_state.multi_expanded_phones[fone_limpo] = res_tel or []
@@ -756,8 +760,8 @@ elif st.session_state.view == 'DETAILS':
                 merged_contatos.update(st.session_state.multi_expanded_phones)
                 merged_contatos.update(st.session_state.multi_expanded_emails)
 
-                # Constrói o HTML do Grafo com Vis.js
-                html_code, nos_atuais = graph_builder.build_graph_html(
+                # Elementos da rede
+                _, _, nos_atuais = graph_builder.build_graph_elements(
                     root_data=dados,
                     socios_empresas=merged_socios,
                     contatos_empresas=merged_contatos,
@@ -769,16 +773,15 @@ elif st.session_state.view == 'DETAILS':
                     auto_filter_accountants=st.session_state.graph_auto_filter_accountants,
                     manual_nodes=st.session_state.graph_manual_nodes,
                     manual_edges=st.session_state.graph_manual_edges,
-                    height=f"{graph_h_int}px",
                     extra_companies=st.session_state.multi_expanded_companies
                 )
 
-                # Renderização do Grafo Interativo Vis.js
-                components.html(html_code, height=graph_h_int + 20, scrolling=False)
-
-                # Painel de Expansão Rápida da Rede (+)
+                # Painel de Expansão Rápida da Rede (+) - Posicionado no topo do Grafo
                 st.markdown("##### 🌳 Expansão Dinâmica de Relações (+)")
-                st.caption("Passe o mouse sobre qualquer nó e clique no botão verde **✚**, ou selecione abaixo a entidade para expandir suas ramificações:")
+                st.caption(
+                    "Passe o mouse sobre qualquer nó no grafo e clique no botão verde **✚**, dê um duplo-clique no nó, "
+                    "ou selecione diretamente abaixo a entidade para expandir suas conexões:"
+                )
 
                 c_exp1, c_exp2 = st.columns([3.2, 1.2])
                 with c_exp1:
@@ -798,10 +801,80 @@ elif st.session_state.view == 'DETAILS':
                         label_visibility="collapsed"
                     )
                 with c_exp2:
-                    if st.button("✚ Expandir Conexões", type="primary", use_container_width=True, disabled=not bool(opcoes_exp)):
+                    if st.button("✚ Expandir Relações", type="primary", use_container_width=True, disabled=not bool(opcoes_exp)):
                         if sel_ent and sel_ent in opcoes_exp:
                             e_type, e_val, e_lbl = opcoes_exp[sel_ent]
                             executar_expansao_entidade(e_type, e_val, e_lbl)
+                            st.rerun()
+
+                # Renderização do Grafo Interativo com Custom Component (Bidirecional)
+                try:
+                    graph_event, _ = graph_builder.render_interactive_graph(
+                        root_data=dados,
+                        socios_empresas=merged_socios,
+                        contatos_empresas=merged_contatos,
+                        shared_addresses=shared_addresses,
+                        family_relationships=family_relationships,
+                        ubos=ubos,
+                        enable_risk_highlight=st.session_state.enable_risk_highlight,
+                        excluded_nodes=st.session_state.graph_excluded_nodes,
+                        auto_filter_accountants=st.session_state.graph_auto_filter_accountants,
+                        manual_nodes=st.session_state.graph_manual_nodes,
+                        manual_edges=st.session_state.graph_manual_edges,
+                        height=graph_h_int,
+                        extra_companies=st.session_state.multi_expanded_companies,
+                        key=f"interactive_net_{cnpj}"
+                    )
+                except Exception as comp_err:
+                    # Fallback com HTML padrão caso o componente dê erro
+                    html_code, _ = graph_builder.build_graph_html(
+                        root_data=dados,
+                        socios_empresas=merged_socios,
+                        contatos_empresas=merged_contatos,
+                        shared_addresses=shared_addresses,
+                        family_relationships=family_relationships,
+                        ubos=ubos,
+                        enable_risk_highlight=st.session_state.enable_risk_highlight,
+                        excluded_nodes=st.session_state.graph_excluded_nodes,
+                        auto_filter_accountants=st.session_state.graph_auto_filter_accountants,
+                        manual_nodes=st.session_state.graph_manual_nodes,
+                        manual_edges=st.session_state.graph_manual_edges,
+                        height=f"{graph_h_int}px",
+                        extra_companies=st.session_state.multi_expanded_companies
+                    )
+                    components.html(html_code, height=graph_h_int + 20, scrolling=False)
+                    graph_event = None
+
+                # Processa eventos originados de cliques diretos no grafo (+) e (x)
+                if graph_event and isinstance(graph_event, dict):
+                    nonce = graph_event.get("nonce")
+                    if nonce and nonce != st.session_state.get("last_graph_action_nonce"):
+                        st.session_state.last_graph_action_nonce = nonce
+                        act = graph_event.get("action")
+                        if act == "expand":
+                            executar_expansao_entidade(
+                                graph_event.get("type"),
+                                graph_event.get("val"),
+                                graph_event.get("label", "")
+                            )
+                            st.rerun()
+                        elif act == "delete":
+                            node_id = graph_event.get("id")
+                            if node_id:
+                                st.session_state.graph_excluded_nodes.add(node_id)
+                                st.toast("🗑️ Nó removido do grafo.")
+                                st.rerun()
+                        elif act == "clear":
+                            st.session_state.graph_excluded_nodes = set()
+                            st.session_state.graph_manual_nodes = []
+                            st.session_state.graph_manual_edges = []
+                            st.session_state.graph_cache_socios_empresas = {}
+                            st.session_state.graph_cache_contatos_empresas = {}
+                            st.session_state.multi_expanded_companies = {}
+                            st.session_state.multi_expanded_socios = {}
+                            st.session_state.multi_expanded_phones = {}
+                            st.session_state.multi_expanded_emails = {}
+                            st.toast("🧹 Grafos e conexões limpos.")
                             st.rerun()
 
                 st.divider()

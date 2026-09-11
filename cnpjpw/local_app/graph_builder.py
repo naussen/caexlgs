@@ -8,8 +8,16 @@ Funcionalidades:
 - Destaque do Beneficiário Final (UBO 👑)
 - Detecção e arestas de Parentesco / Grupos Familiares
 - Ferramentas de Enquadramento, Tela Cheia (Maximizar) e Exportação PNG
+- Expansão dinâmica e recursiva de relações (Sócios, Empresas, Telefones, E-mails)
 """
+import os
 import json
+from typing import Tuple, List, Dict, Set, Optional, Any
+import streamlit.components.v1 as components
+
+# Registro do Custom Component Streamlit com comunicação bidirecional
+_COMPONENT_DIR = os.path.join(os.path.dirname(__file__), "components", "vis_graph")
+_vis_graph_component = components.declare_component("interactive_network", path=_COMPONENT_DIR)
 
 # Cores e Estilos dos Nós
 COLOR_EMPRESA_ROOT = "#0D47A1"   # Azul Royal Escuro
@@ -42,7 +50,7 @@ def is_probable_accountant(label: str, title: str = "") -> bool:
             return True
     return False
 
-def build_graph_html(
+def build_graph_elements(
     root_data: dict,
     socios_empresas: dict = None,
     contatos_empresas: dict = None,
@@ -54,11 +62,11 @@ def build_graph_html(
     auto_filter_accountants: bool = False,
     manual_nodes: list = None,
     manual_edges: list = None,
-    height: str = "750px",
     extra_companies: dict = None
-) -> tuple[str, list[dict]]:
+) -> Tuple[List[Dict], List[Dict], List[Dict]]:
     """
-    Constrói a rede e retorna o HTML com Vis.js interativo e a lista de nós gerados.
+    Processa todos os dados e constrói as listas de nós e arestas para a rede.
+    Retorna (nodes_list, edges_list, available_nodes).
     """
     if excluded_nodes is None:
         excluded_nodes = set()
@@ -80,7 +88,6 @@ def build_graph_html(
         extra_companies = {}
 
     ubo_names = {u.get('nome', '').strip().lower() for u in ubos if u.get('nome')}
-
     nodes_dict = {}
     edges_list = []
 
@@ -142,7 +149,7 @@ def build_graph_html(
                     "font": {"color": "#546E7A", "size": 10, "align": "middle"}
                 })
 
-    # 1. Empresa Principal
+    # 1. Empresa Principal (Raiz)
     root_cnpj = root_data.get('cnpj_basico', '')
     if len(root_cnpj) < 14 and 'cnpj_ordem' in root_data and 'cnpj_dv' in root_data:
         root_cnpj = f"{root_cnpj}{root_data['cnpj_ordem']}{root_data['cnpj_dv']}"
@@ -156,7 +163,7 @@ def build_graph_html(
 
     root_color = COLOR_EMPRESA_RISK if is_root_risk else COLOR_EMPRESA_ROOT
     root_prefix = "⚠️ " if is_root_risk else ""
-    
+
     root_tooltip = (
         f"<b>🏢 {root_name}</b><br>"
         f"CNPJ: {root_cnpj}<br>"
@@ -177,7 +184,7 @@ def build_graph_html(
         raw_val=root_cnpj
     )
 
-    # 2. Sócios e Empresas Vinculadas
+    # 2. Sócios da Raiz
     socios = root_data.get('socios', [])
     for i, s in enumerate(socios):
         nome_socio = (s.get('nome') or f"Sócio {i+1}").strip()
@@ -209,36 +216,63 @@ def build_graph_html(
         ):
             add_edge(root_id, socio_id, label=qualif[:16])
 
-            # Empresas do sócio (2º grau)
-            empresas_do_socio = socios_empresas.get(nome_socio, [])
-            for emp in empresas_do_socio:
-                emp_cnpj = emp.get('cnpj') or emp.get('cnpj_completo') or ""
-                emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
-                emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
+    # 3. Sócios e Empresas Expandidas (Itera sobre TODOS os sócios em socios_empresas)
+    for s_nome, emp_list in socios_empresas.items():
+        s_nome_clean = (s_nome or "").strip()
+        if not s_nome_clean:
+            continue
+        s_id = f"socio_{s_nome_clean.lower()}"
+        is_ubo = s_nome_clean.lower() in ubo_names
+        s_color = COLOR_UBO if is_ubo else COLOR_SOCIO
+        s_prefix = "👑 " if is_ubo else ""
+        s_tooltip = f"<b>👤 {s_nome_clean}</b><br>Sócio"
+        if is_ubo:
+            s_tooltip += "<br><font color='#F57F17'><b>👑 Beneficiário Final Identificado (UBO)</b></font>"
 
-                if emp_id != root_id:
-                    emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
-                    is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
-                    emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
-                    emp_prefix = "⚠️ " if is_emp_risk else ""
+        add_node(
+            s_id,
+            label=f"{s_prefix}{s_nome_clean[:18]}" + ("..." if len(s_nome_clean) > 18 else ""),
+            title=s_tooltip,
+            color=s_color,
+            size=24 if is_ubo else 21,
+            shape="dot",
+            node_type="UBO" if is_ubo else "SOCIO",
+            raw_val=s_nome_clean
+        )
 
-                    emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Situação: {emp_sit}<br>Sócio em comum: {nome_socio}"
-                    if is_emp_risk:
-                        emp_tooltip += f"<br><font color='#D32F2F'><b>⚠️ ALERTA: Situação {emp_sit}</b></font>"
+        for emp in (emp_list or []):
+            emp_cnpj = emp.get('cnpj') or emp.get('cnpj_completo') or emp.get('cnpj_basico') or ""
+            emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
+            emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
 
-                    if add_node(
-                        emp_id,
-                        label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
-                        title=emp_tooltip,
-                        color=emp_color,
-                        size=24,
-                        shape="dot",
-                        node_type="EMPRESA",
-                        raw_val=emp_cnpj
-                    ):
-                        add_edge(socio_id, emp_id, label="Participação")
+            if emp_id != root_id:
+                emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
+                is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
+                emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
+                emp_prefix = "⚠️ " if is_emp_risk else ""
 
-    # 3. E-mails e Telefones
+                emp_tooltip = (
+                    f"<b>🏢 {emp_nome}</b><br>"
+                    f"CNPJ: {emp_cnpj}<br>"
+                    f"Situação: {emp_sit}<br>"
+                    f"Sócio em comum: {s_nome_clean}"
+                )
+                if is_emp_risk:
+                    emp_tooltip += f"<br><font color='#D32F2F'><b>⚠️ ALERTA: Situação {emp_sit}</b></font>"
+
+                if add_node(
+                    emp_id,
+                    label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
+                    title=emp_tooltip,
+                    color=emp_color,
+                    size=24,
+                    shape="dot",
+                    node_type="EMPRESA",
+                    raw_val=emp_cnpj
+                ):
+                    add_edge(s_id, emp_id, label="Participação")
+
+    # 4. E-mails e Telefones da Raiz
     email = root_data.get('correio_eletronico')
     if email and "@" in email:
         email_clean = email.strip().lower()
@@ -256,38 +290,14 @@ def build_graph_html(
         ):
             add_edge(root_id, email_id, label="e-mail")
 
-            # Outras empresas ligadas pelo e-mail
-            outras_email = contatos_empresas.get(email_clean, [])
-            for emp in outras_email:
-                emp_cnpj = emp.get('cnpj') or ""
-                emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
-                emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
-                if emp_id != root_id:
-                    emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
-                    is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
-                    emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
-                    emp_prefix = "⚠️ " if is_emp_risk else ""
-
-                    emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Mesmo e-mail: {email_clean}"
-                    if add_node(
-                        emp_id,
-                        label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
-                        title=emp_tooltip,
-                        color=emp_color,
-                        size=22,
-                        shape="dot",
-                        node_type="EMPRESA",
-                        raw_val=emp_cnpj
-                    ):
-                        add_edge(email_id, emp_id, label="mesmo e-mail")
-
     tel1 = f"{root_data.get('ddd1', '') or ''}{root_data.get('telefone_1', '') or ''}".strip()
     if len(tel1) > 2:
         tel_id = f"tel_{tel1}"
-        tel_tooltip = f"<b>📞 Telefone:</b> ({tel1[:2]}) {tel1[2:]}"
+        tel_label = f"({tel1[:2]}) {tel1[2:]}" if len(tel1) >= 10 else tel1
+        tel_tooltip = f"<b>📞 Telefone:</b> {tel_label}"
         if add_node(
             tel_id,
-            label=f"({tel1[:2]}) {tel1[2:]}",
+            label=tel_label,
             title=tel_tooltip,
             color=COLOR_TELEFONE,
             size=18,
@@ -297,10 +307,26 @@ def build_graph_html(
         ):
             add_edge(root_id, tel_id, label="telefone")
 
-            # Outras empresas ligadas pelo telefone
-            outras_tel = contatos_empresas.get(tel1, [])
-            for emp in outras_tel:
-                emp_cnpj = emp.get('cnpj') or ""
+    # 5. Contatos Expandidos (Itera sobre TODOS os contatos em contatos_empresas)
+    for c_key, emp_list in contatos_empresas.items():
+        c_str = str(c_key or "").strip()
+        if not c_str:
+            continue
+        if "@" in c_str:
+            em_clean = c_str.lower()
+            em_id = f"email_{em_clean}"
+            add_node(
+                em_id,
+                label=em_clean[:22] + ("..." if len(em_clean) > 22 else ""),
+                title=f"<b>✉️ E-mail:</b> {em_clean}",
+                color=COLOR_EMAIL,
+                size=18,
+                shape="diamond",
+                node_type="EMAIL",
+                raw_val=em_clean
+            )
+            for emp in (emp_list or []):
+                emp_cnpj = emp.get('cnpj') or emp.get('cnpj_completo') or ""
                 emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
                 emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
                 if emp_id != root_id:
@@ -308,8 +334,7 @@ def build_graph_html(
                     is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
                     emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
                     emp_prefix = "⚠️ " if is_emp_risk else ""
-
-                    emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Mesmo telefone: {tel1}"
+                    emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Mesmo e-mail: {em_clean}"
                     if add_node(
                         emp_id,
                         label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
@@ -320,14 +345,50 @@ def build_graph_html(
                         node_type="EMPRESA",
                         raw_val=emp_cnpj
                     ):
-                        add_edge(tel_id, emp_id, label="mesmo fone")
+                        add_edge(em_id, emp_id, label="mesmo e-mail")
+        else:
+            digits = "".join(filter(str.isdigit, c_str))
+            if len(digits) >= 8:
+                tel_id = f"tel_{digits}"
+                tel_label = f"({digits[:2]}) {digits[2:]}" if len(digits) >= 10 else digits
+                add_node(
+                    tel_id,
+                    label=tel_label,
+                    title=f"<b>📞 Telefone:</b> {tel_label}",
+                    color=COLOR_TELEFONE,
+                    size=18,
+                    shape="diamond",
+                    node_type="TELEFONE",
+                    raw_val=digits
+                )
+                for emp in (emp_list or []):
+                    emp_cnpj = emp.get('cnpj') or emp.get('cnpj_completo') or ""
+                    emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
+                    emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
+                    if emp_id != root_id:
+                        emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
+                        is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
+                        emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
+                        emp_prefix = "⚠️ " if is_emp_risk else ""
+                        emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Mesmo telefone: {tel_label}"
+                        if add_node(
+                            emp_id,
+                            label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
+                            title=emp_tooltip,
+                            color=emp_color,
+                            size=22,
+                            shape="dot",
+                            node_type="EMPRESA",
+                            raw_val=emp_cnpj
+                        ):
+                            add_edge(tel_id, emp_id, label="mesmo fone")
 
-    # 4. Endereços Compartilhados (Mapeamento de Cluster Físico)
+    # 6. Endereços Compartilhados
     for addr_key, addr_info in shared_addresses.items():
         addr_id = f"addr_{addr_key}"
         label_addr = addr_info.get('label', '')
         comps = addr_info.get('companies', [])
-        
+
         addr_tooltip = f"<b>📍 Endereço Compartilhado:</b><br>{label_addr}<br><b>{len(comps)} empresas vinculadas</b>"
         if add_node(
             addr_id,
@@ -345,7 +406,7 @@ def build_graph_html(
                 if c_id in nodes_dict:
                     add_edge(addr_id, c_id, label="mesmo endereço", custom_color=COLOR_EDGE_ENDERECO, dashes=True)
 
-    # 5. Vínculos de Parentesco (Sobrenomes em Comum)
+    # 7. Vínculos de Parentesco
     for fam in family_relationships:
         s_a = fam.get('socio_a', '').strip().lower()
         s_b = fam.get('socio_b', '').strip().lower()
@@ -354,7 +415,7 @@ def build_graph_html(
         if id_a in nodes_dict and id_b in nodes_dict:
             add_edge(id_a, id_b, label="Parentesco", custom_color=COLOR_EDGE_FAMILY, dashes=True)
 
-    # 6. Nós Manuais
+    # 8. Nós Manuais
     for mn in manual_nodes:
         m_id = mn.get('id')
         m_label = mn.get('label') or "Manual"
@@ -365,7 +426,7 @@ def build_graph_html(
         is_pf = (m_type == 'MANUAL_PF')
         m_color = COLOR_MANUAL_PF if is_pf else COLOR_MANUAL_PJ
         m_shape = "star" if is_pf else "square"
-        
+
         m_tooltip = (
             f"<b>⭐ Inserção Manual: {m_label}</b><br>"
             f"Tipo: {'Pessoa Física (PF)' if is_pf else 'Pessoa Jurídica (PJ)'}<br>"
@@ -384,14 +445,14 @@ def build_graph_html(
             raw_val=m_label
         )
 
-    # 7. Vínculos Manuais
+    # 9. Vínculos Manuais
     for me in manual_edges:
         src = me.get('from')
         dst = me.get('to')
         lbl = me.get('label', 'Vínculo Manual')
         add_edge(src, dst, label=lbl, manual=True)
 
-    # 8. Empresas Expandidas Dinamicamente (extra_companies)
+    # 10. Empresas Expandidas Dinamicamente (extra_companies)
     for ext_cnpj, ext_emp in extra_companies.items():
         ext_nome = ext_emp.get('nome_empresarial') or ext_emp.get('razao_social') or f"CNPJ {ext_cnpj}"
         ext_id = f"cnpj_{ext_cnpj}"
@@ -452,11 +513,97 @@ def build_graph_html(
         ext_tel = f"{ext_emp.get('ddd1', '') or ''}{ext_emp.get('telefone_1', '') or ''}".strip()
         if len(ext_tel) > 2:
             t_id = f"tel_{ext_tel}"
-            if add_node(t_id, label=f"({ext_tel[:2]}) {ext_tel[2:]}", title=f"<b>📞 Telefone:</b> {ext_tel}", color=COLOR_TELEFONE, size=18, shape="diamond", node_type="TELEFONE", raw_val=ext_tel):
+            tel_label = f"({ext_tel[:2]}) {ext_tel[2:]}" if len(ext_tel) >= 10 else ext_tel
+            if add_node(t_id, label=tel_label, title=f"<b>📞 Telefone:</b> {tel_label}", color=COLOR_TELEFONE, size=18, shape="diamond", node_type="TELEFONE", raw_val=ext_tel):
                 add_edge(ext_id, t_id, label="telefone")
 
-    # Serialização para o template Vis.js
-    nodes_json = json.dumps(list(nodes_dict.values()), ensure_ascii=False)
+    nodes_list = list(nodes_dict.values())
+    available_nodes = [
+        {"id": n["id"], "label": n["_raw_label"], "type": n["_type"], "val": n.get("_raw_val", n["id"])}
+        for n in nodes_list
+    ]
+    return nodes_list, edges_list, available_nodes
+
+
+def render_interactive_graph(
+    root_data: dict,
+    socios_empresas: dict = None,
+    contatos_empresas: dict = None,
+    shared_addresses: dict = None,
+    family_relationships: list = None,
+    ubos: list = None,
+    enable_risk_highlight: bool = True,
+    excluded_nodes: set = None,
+    auto_filter_accountants: bool = False,
+    manual_nodes: list = None,
+    manual_edges: list = None,
+    height: int = 750,
+    extra_companies: dict = None,
+    key: str = "main_interactive_graph"
+) -> Tuple[Optional[Dict[str, Any]], List[Dict]]:
+    """
+    Renderiza o grafo interativo através do Streamlit Custom Component com suporte
+    a cliques nos botões de expansão (+) e exclusão (x), retornando o evento e a lista de nós.
+    """
+    nodes_list, edges_list, available_nodes = build_graph_elements(
+        root_data=root_data,
+        socios_empresas=socios_empresas,
+        contatos_empresas=contatos_empresas,
+        shared_addresses=shared_addresses,
+        family_relationships=family_relationships,
+        ubos=ubos,
+        enable_risk_highlight=enable_risk_highlight,
+        excluded_nodes=excluded_nodes,
+        auto_filter_accountants=auto_filter_accountants,
+        manual_nodes=manual_nodes,
+        manual_edges=manual_edges,
+        extra_companies=extra_companies
+    )
+
+    comp_value = _vis_graph_component(
+        nodes=nodes_list,
+        edges=edges_list,
+        height=height,
+        key=key,
+        default=None
+    )
+    return comp_value, available_nodes
+
+
+def build_graph_html(
+    root_data: dict,
+    socios_empresas: dict = None,
+    contatos_empresas: dict = None,
+    shared_addresses: dict = None,
+    family_relationships: list = None,
+    ubos: list = None,
+    enable_risk_highlight: bool = True,
+    excluded_nodes: set = None,
+    auto_filter_accountants: bool = False,
+    manual_nodes: list = None,
+    manual_edges: list = None,
+    height: str = "750px",
+    extra_companies: dict = None
+) -> Tuple[str, List[Dict]]:
+    """
+    Retorna HTML independente com Vis.js interativo (usado para exportação e fallback).
+    """
+    nodes_list, edges_list, available_nodes = build_graph_elements(
+        root_data=root_data,
+        socios_empresas=socios_empresas,
+        contatos_empresas=contatos_empresas,
+        shared_addresses=shared_addresses,
+        family_relationships=family_relationships,
+        ubos=ubos,
+        enable_risk_highlight=enable_risk_highlight,
+        excluded_nodes=excluded_nodes,
+        auto_filter_accountants=auto_filter_accountants,
+        manual_nodes=manual_nodes,
+        manual_edges=manual_edges,
+        extra_companies=extra_companies
+    )
+
+    nodes_json = json.dumps(nodes_list, ensure_ascii=False)
     edges_json = json.dumps(edges_list, ensure_ascii=False)
 
     html_template = f"""
@@ -464,7 +611,7 @@ def build_graph_html(
     <html>
     <head>
       <meta charset="utf-8">
-      <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+      <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
       <style>
         body, html {{
           margin: 0;
@@ -487,50 +634,6 @@ def build_graph_html(
           border-radius: 8px;
           background-color: #ffffff;
         }}
-        #node-actions-menu {{
-          display: none;
-          position: absolute;
-          gap: 5px;
-          align-items: center;
-          background: rgba(255, 255, 255, 0.96);
-          padding: 3px 6px;
-          border-radius: 16px;
-          box-shadow: 0 3px 10px rgba(0,0,0,0.3);
-          border: 1px solid #b0bec5;
-          z-index: 1000;
-          user-select: none;
-        }}
-        .node-action-btn {{
-          width: 22px;
-          height: 22px;
-          border-radius: 50%;
-          border: none;
-          font-family: Arial, sans-serif;
-          font-weight: 900;
-          line-height: 22px;
-          text-align: center;
-          cursor: pointer;
-          padding: 0;
-          transition: transform 0.15s ease, background-color 0.15s ease;
-        }}
-        .btn-expand {{
-          background-color: #2e7d32;
-          color: #ffffff;
-          font-size: 14px;
-        }}
-        .btn-expand:hover {{
-          transform: scale(1.22);
-          background-color: #1b5e20;
-        }}
-        .btn-delete {{
-          background-color: #d32f2f;
-          color: #ffffff;
-          font-size: 11px;
-        }}
-        .btn-delete:hover {{
-          transform: scale(1.22);
-          background-color: #b71c1c;
-        }}
         #toolbar {{
           height: 40px;
           padding: 2px 10px;
@@ -552,268 +655,62 @@ def build_graph_html(
           cursor: pointer;
           font-size: 11px;
           font-weight: 500;
-          transition: background-color 0.15s;
         }}
-        .btn:hover {{
-          background-color: #eceff1;
-        }}
-        .btn-danger {{
-          color: #c62828;
-          border-color: #ef9a9a;
-        }}
-        .btn-danger:hover {{
-          background-color: #ffebee;
-        }}
-        .legend-item {{
-          display: flex;
-          align-items: center;
-          gap: 4px;
-          margin-left: 4px;
-          font-size: 11px;
-        }}
-        .dot {{
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          display: inline-block;
-        }}
+        .btn:hover {{ background-color: #eceff1; }}
+        .btn-danger {{ color: #c62828; border-color: #ef9a9a; }}
+        .legend-item {{ display: flex; align-items: center; gap: 4px; margin-left: 4px; font-size: 11px; }}
+        .dot {{ width: 10px; height: 10px; border-radius: 50%; display: inline-block; }}
       </style>
     </head>
     <body>
       <div id="toolbar">
-        <button class="btn" id="fs-toggle" onclick="toggleFullScreen()">⛶ Maximizar</button>
         <button class="btn" onclick="network.fit({{animation: true}})">🔍 Enquadrar</button>
         <button class="btn" id="physics-toggle" onclick="togglePhysics()">⏸️ Pausar</button>
         <button class="btn btn-danger" onclick="clearGraph()">🧹 Limpar Grafos</button>
         <button class="btn" onclick="exportImage()">📸 Exportar PNG</button>
         <span style="border-left: 1px solid #cfd8dc; height: 18px; margin: 0 2px;"></span>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_ROOT};"></span> Central</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_LINK};"></span> Outra Empresa</div>
+        <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_ROOT};"></span> Raiz</div>
+        <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_LINK};"></span> Empresa</div>
         <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_RISK};"></span> ⚠️ Irregular</div>
         <div class="legend-item"><span class="dot" style="background-color: {COLOR_SOCIO};"></span> Sócio</div>
         <div class="legend-item"><span class="dot" style="background-color: {COLOR_UBO};"></span> 👑 UBO</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_ENDERECO};"></span> 📍 Endereço</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMAIL};"></span> E-mail</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_TELEFONE};"></span> Fone</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_MANUAL_PF};"></span> Manual</div>
-        <div class="legend-item"><span style="display:inline-block; width:12px; border-top: 2px dashed {COLOR_EDGE_MANUAL};"></span> Vínculo Manual</div>
-        <div class="legend-item"><span style="display:inline-block; width:12px; border-top: 2px dashed {COLOR_EDGE_FAMILY};"></span> Parentesco</div>
       </div>
       <div id="network-wrapper">
         <div id="network-container"></div>
-        <div id="node-actions-menu">
-          <button id="node-expand-btn" class="node-action-btn btn-expand" title="Expandir relações desta entidade (+)">✚</button>
-          <button id="node-delete-btn" class="node-action-btn btn-delete" title="Excluir este nó da visualização (✕)">✕</button>
-        </div>
       </div>
 
       <script type="text/javascript">
         var nodes = new vis.DataSet({nodes_json});
         var edges = new vis.DataSet({edges_json});
-
         var container = document.getElementById('network-container');
-        var actionMenu = document.getElementById('node-actions-menu');
-        var expandBtn = document.getElementById('node-expand-btn');
-        var delBtn = document.getElementById('node-delete-btn');
-        var activeTargetNode = null;
-        var hideTimeout = null;
-        var isMouseOverMenu = false;
 
-        var data = {{
-          nodes: nodes,
-          edges: edges
-        }};
         var options = {{
-          nodes: {{
-            font: {{ size: 12, face: 'Roboto, Segoe UI, sans-serif' }},
-            borderWidth: 2,
-            shadow: true
-          }},
-          edges: {{
-            smooth: {{ type: 'continuous', roundness: 0.25 }},
-            shadow: false
-          }},
+          nodes: {{ font: {{ size: 12, face: 'Roboto, Segoe UI, sans-serif' }}, borderWidth: 2, shadow: true }},
+          edges: {{ smooth: {{ type: 'continuous', roundness: 0.25 }}, shadow: false }},
           physics: {{
             enabled: true,
-            forceAtlas2Based: {{
-              gravitationalConstant: -65,
-              centralGravity: 0.012,
-              springLength: 130,
-              springStrength: 0.07,
-              damping: 0.45
-            }},
+            forceAtlas2Based: {{ gravitationalConstant: -65, centralGravity: 0.012, springLength: 130, springStrength: 0.07, damping: 0.45 }},
             solver: 'forceAtlas2Based',
             stabilization: {{ iterations: 120 }}
           }},
-          interaction: {{
-            hover: true,
-            tooltipDelay: 150,
-            zoomView: true,
-            dragNodes: true,
-            navigationButtons: true
-          }}
+          interaction: {{ hover: true, tooltipDelay: 150, zoomView: true, dragNodes: true, navigationButtons: true }}
         }};
 
-        var network = new vis.Network(container, data, options);
+        var network = new vis.Network(container, {{nodes: nodes, edges: edges}}, options);
         var physicsEnabled = true;
-
-        function updateActionMenuPosition(nodeId) {{
-          try {{
-            var pos = network.getPosition(nodeId);
-            var domPos = network.canvasToDOM(pos);
-            actionMenu.style.left = (domPos.x - 24) + 'px';
-            actionMenu.style.top = (domPos.y - 34) + 'px';
-            actionMenu.style.display = 'flex';
-          }} catch (e) {{
-            actionMenu.style.display = 'none';
-          }}
-        }}
-
-        network.on('hoverNode', function(params) {{
-          clearTimeout(hideTimeout);
-          activeTargetNode = params.node;
-          updateActionMenuPosition(params.node);
-        }});
-
-        network.on('blurNode', function(params) {{
-          hideTimeout = setTimeout(function() {{
-            if (!isMouseOverMenu) {{
-              actionMenu.style.display = 'none';
-              activeTargetNode = null;
-            }}
-          }}, 450);
-        }});
-
-        network.on('selectNode', function(params) {{
-          if (params.nodes.length > 0) {{
-            clearTimeout(hideTimeout);
-            activeTargetNode = params.nodes[0];
-            updateActionMenuPosition(activeTargetNode);
-          }}
-        }});
-
-        network.on('deselectNode', function() {{
-          actionMenu.style.display = 'none';
-          activeTargetNode = null;
-        }});
-
-        network.on('dragging', function() {{
-          if (activeTargetNode) updateActionMenuPosition(activeTargetNode);
-        }});
-
-        network.on('zoom', function() {{
-          if (activeTargetNode) updateActionMenuPosition(activeTargetNode);
-        }});
-
-        actionMenu.addEventListener('mouseenter', function() {{
-          isMouseOverMenu = true;
-          clearTimeout(hideTimeout);
-        }});
-
-        actionMenu.addEventListener('mouseleave', function() {{
-          isMouseOverMenu = false;
-          actionMenu.style.display = 'none';
-          activeTargetNode = null;
-        }});
-
-        expandBtn.addEventListener('click', function(e) {{
-          e.stopPropagation();
-          if (activeTargetNode) {{
-            var nodeObj = nodes.get(activeTargetNode);
-            if (nodeObj) {{
-              var nType = nodeObj._type || 'OUTRO';
-              var nVal = nodeObj._raw_val || nodeObj.id;
-              var nLabel = nodeObj.label || nodeObj._raw_label || nVal;
-              
-              try {{
-                var pLoc = window.parent.location;
-                var cleanHref = pLoc.href.split('?')[0];
-                pLoc.href = cleanHref + '?expand_type=' + encodeURIComponent(nType) + '&expand_val=' + encodeURIComponent(nVal) + '&expand_label=' + encodeURIComponent(nLabel);
-              }} catch(err) {{
-                window.parent.postMessage({{
-                  type: 'streamlit:expand',
-                  nodeType: nType,
-                  nodeVal: nVal,
-                  nodeLabel: nLabel
-                }}, '*');
-              }}
-            }}
-            actionMenu.style.display = 'none';
-            activeTargetNode = null;
-          }}
-        }});
-
-        delBtn.addEventListener('click', function(e) {{
-          e.stopPropagation();
-          if (activeTargetNode) {{
-            nodes.remove(activeTargetNode);
-            actionMenu.style.display = 'none';
-            activeTargetNode = null;
-          }}
-        }});
-
-        // Teclas Delete e Backspace para remoção de nós selecionados
-        document.addEventListener('keydown', function(e) {{
-          if (e.key === 'Delete' || e.key === 'Backspace') {{
-            var sel = network.getSelectedNodes();
-            if (sel && sel.length > 0) {{
-              nodes.remove(sel);
-              actionMenu.style.display = 'none';
-              activeTargetNode = null;
-            }}
-          }}
-        }});
-
-        function clearGraph() {{
-          if (confirm("Deseja realmente limpar todos os nós do grafo visual?")) {{
-            nodes.clear();
-            edges.clear();
-            if (actionMenu) actionMenu.style.display = 'none';
-          }}
-        }}
 
         function togglePhysics() {{
           physicsEnabled = !physicsEnabled;
           network.setOptions({{ physics: {{ enabled: physicsEnabled }} }});
-          var btn = document.getElementById('physics-toggle');
-          btn.innerHTML = physicsEnabled ? '⏸️ Pausar' : '▶️ Ativar';
+          document.getElementById('physics-toggle').innerHTML = physicsEnabled ? '⏸️ Pausar' : '▶️ Ativar';
         }}
 
-        function toggleFullScreen() {{
-          var elem = document.documentElement;
-          if (!document.fullscreenElement && !document.webkitFullscreenElement) {{
-            if (elem.requestFullscreen) {{
-              elem.requestFullscreen();
-            }} else if (elem.webkitRequestFullscreen) {{
-              elem.webkitRequestFullscreen();
-            }}
-          }} else {{
-            if (document.exitFullscreen) {{
-              document.exitFullscreen();
-            }} else if (document.webkitExitFullscreen) {{
-              document.webkitExitFullscreen();
-            }}
-          }}
+        function clearGraph() {{
+          if (confirm("Limpar nós do grafo?")) {{ nodes.clear(); edges.clear(); }}
         }}
-
-        function handleFsChange() {{
-          var isFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-          var btn = document.getElementById('fs-toggle');
-          if (btn) {{
-            btn.innerHTML = isFs ? '🗗 Restaurar' : '⛶ Maximizar';
-          }}
-          setTimeout(function() {{
-            network.fit({{ animation: true }});
-          }}, 300);
-        }}
-
-        document.addEventListener('fullscreenchange', handleFsChange);
-        document.addEventListener('webkitfullscreenchange', handleFsChange);
 
         function exportImage() {{
-          network.fit({{
-            animation: false
-          }});
+          network.fit({{ animation: false }});
           setTimeout(function() {{
             var canvas = container.getElementsByTagName('canvas')[0];
             if (canvas) {{
@@ -822,15 +719,10 @@ def build_graph_html(
               link.href = canvas.toDataURL('image/png');
               link.click();
             }}
-          }}, 400);
+          }}, 300);
         }}
       </script>
     </body>
     </html>
     """
-    
-    available_nodes = [
-        {"id": n["id"], "label": n["_raw_label"], "type": n["_type"], "val": n.get("_raw_val", n["id"])}
-        for n in nodes_dict.values()
-    ]
     return html_template, available_nodes
