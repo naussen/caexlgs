@@ -728,7 +728,7 @@ def build_graph_html(
           edges: {{ smooth: {{ type: 'continuous', roundness: 0.25 }}, shadow: false }},
           physics: {{
             enabled: true,
-            forceAtlas2Based: {{ gravitationalConstant: -60, centralGravity: 0.01, springLength: 130, springStrength: 0.06, damping: 0.45 }},
+            forceAtlas2Based: {{ gravitationalConstant: -60, centralGravity: 0.01, springLength: 130, springConstant: 0.06, damping: 0.45 }},
             solver: 'forceAtlas2Based',
             stabilization: {{ iterations: 120 }}
           }},
