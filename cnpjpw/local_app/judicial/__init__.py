@@ -11,6 +11,8 @@ from .validators import (
     identificar_tipo_documento,
     sanitizar_nome,
     formatar_numero_processo_cnj,
+    formatar_cnae,
+    obter_cnae_completo,
 )
 from .models import (
     PoloProcessual,

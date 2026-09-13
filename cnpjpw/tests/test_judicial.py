@@ -315,6 +315,48 @@ class TestGrafoJudicial(unittest.TestCase):
         self.assertIn("Réu", edges[0]["label"])
         self.assertTrue(edges[0]["dashes"])
 
+    def test_conexao_grafo_com_no_cnpj_raiz(self):
+        proc = ProcessoJudicial(
+            numero="0125800-63.2005.5.04.0022",
+            tribunal="TRT4",
+            classe="Ação Trabalhista",
+        )
+        vinculo = VinculoProcessual(
+            documento="75323907000190",
+            tipo_documento=TipoDocumento.CNPJ,
+            nome_parte="ESPORTE CLUBE INTERNACIONAL",
+            numero_processo="01258006320055040022",
+            numero_formatado="0125800-63.2005.5.04.0022",
+            tribunal="TRT4",
+            polo=PoloProcessual.PASSIVO,
+            papel="REU",
+        )
+        nodes, edges = converter_processos_para_elementos_grafo(
+            processos=[proc],
+            vinculos=[vinculo],
+            id_no_origem="cnpj_75323907000190",
+        )
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(edges[0]["from"], "cnpj_75323907000190")
+        self.assertEqual(edges[0]["to"], "proc_01258006320055040022")
+        self.assertTrue(edges[0]["dashes"])
+
+
+class TestCnaeEnriquecimento(unittest.TestCase):
+
+    def test_formatacao_e_enriquecimento_cnae(self):
+        from cnpjpw.local_app.judicial import obter_cnae_completo
+        
+        # Teste com código de 7 dígitos e descrição ausente
+        fmt, desc = obter_cnae_completo("9312300", "")
+        self.assertEqual(fmt, "9312-3/00")
+        self.assertIn("CLUBES", desc.upper())
+
+        # Teste com código já formatado e descrição presente
+        fmt2, desc2 = obter_cnae_completo("6201-5/01", "Desenvolvimento de programas de computador")
+        self.assertEqual(fmt2, "6201-5/01")
+        self.assertEqual(desc2, "Desenvolvimento de programas de computador")
+
 
 if __name__ == "__main__":
     unittest.main()

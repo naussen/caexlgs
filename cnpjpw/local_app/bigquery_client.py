@@ -1,8 +1,20 @@
 import os
+import json
 from typing import Optional, List, Dict, Tuple
-from google.cloud import bigquery
-from google.oauth2 import service_account
-from google.api_core.exceptions import GoogleAPICallError, PermissionDenied, NotFound, Forbidden
+
+try:
+    from google.cloud import bigquery
+    from google.oauth2 import service_account
+    from google.api_core.exceptions import GoogleAPICallError, PermissionDenied, NotFound, Forbidden
+    HAS_BIGQUERY = True
+except ImportError:
+    bigquery = None
+    service_account = None
+    HAS_BIGQUERY = False
+    class GoogleAPICallError(Exception): pass
+    class PermissionDenied(Exception): pass
+    class NotFound(Exception): pass
+    class Forbidden(Exception): pass
 
 DEFAULT_TABLE = "basedosdados.br_me_cnpj.estabelecimentos"
 DEFAULT_PROJECT_ID = "consulta-cnpj-123456"

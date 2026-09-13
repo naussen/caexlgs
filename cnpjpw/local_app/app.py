@@ -116,6 +116,40 @@ if 'judicial_graph_nodes' not in st.session_state:
 if 'judicial_graph_edges' not in st.session_state:
     st.session_state.judicial_graph_edges = []
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def obter_cnae_completo(cnae_cod: str, cnae_desc: str = ""):
+    """
+    Retorna (cnae_formatado, cnae_descricao_oficial).
+    Formata o código CNAE (ex: 9312-3/00) e enriquece a descrição textual
+    consultando a API pública do IBGE se estiver ausente ou puramente numérica.
+    """
+    import urllib.request
+    import json
+    import re
+
+    cnae_limpo = re.sub(r'\D', '', str(cnae_cod or ''))
+    if len(cnae_limpo) == 7:
+        cnae_fmt = f"{cnae_limpo[:4]}-{cnae_limpo[4]}/{cnae_limpo[5:]}"
+    else:
+        cnae_fmt = str(cnae_cod or '').strip()
+
+    desc_atual = str(cnae_desc or '').strip()
+    if desc_atual and not desc_atual.isdigit() and len(desc_atual) > 3 and desc_atual.lower() != 'não informada':
+        return cnae_fmt, desc_atual
+
+    if cnae_limpo:
+        try:
+            url = f"https://servicodados.ibge.gov.br/api/v2/cnae/subclasses/{cnae_limpo}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if isinstance(data, dict) and 'descricao' in data:
+                    return cnae_fmt, str(data['descricao']).strip().upper()
+        except Exception:
+            pass
+
+    return cnae_fmt, desc_atual or "Atividade econômica não informada"
+
 def navigate_to(view_name, cnpj=None, title="", results=None):
     """Navega para uma tela guardando o estado anterior no histórico para o botão Voltar."""
     st.session_state.history.append({
@@ -577,10 +611,20 @@ elif st.session_state.view == 'DETAILS':
                 st.write(f"Bairro: {dados.get('bairro', '') or '-'} - CEP: {dados.get('cep', '') or '-'}")
                 st.write(f"{dados.get('municipio_desc', '') or '-'} - {dados.get('uf', '') or '-'}")
                 
-                # Atividade
+                # Atividade Principal
                 st.divider()
                 st.write("### 💼 Atividade Principal")
-                st.write(dados.get('cnae_fiscal_principal_descricao', 'Não informada'))
+                cnae_raw_cod = dados.get('cnae_fiscal_principal') or dados.get('cnae_fiscal_principal_descricao') or ''
+                cnae_raw_desc = dados.get('cnae_fiscal_principal_descricao') or ''
+                cnae_fmt, cnae_desc_txt = obter_cnae_completo(cnae_raw_cod, cnae_raw_desc)
+                if cnae_desc_txt and cnae_desc_txt != "Atividade econômica não informada":
+                    dados['cnae_fiscal_principal_descricao'] = f"{cnae_fmt} — {cnae_desc_txt}" if cnae_fmt else cnae_desc_txt
+                    dados['cnae_fiscal_principal'] = cnae_fmt
+                    st.markdown(f"**`{cnae_fmt}`** — **{cnae_desc_txt}**")
+                elif cnae_fmt:
+                    st.markdown(f"**`{cnae_fmt}`**")
+                else:
+                    st.write("Atividade econômica não informada.")
 
             with tab_grafo:
                 # Função para executar expansão de qualquer entidade (Pessoa Física, Jurídica, Telefone, E-mail)
@@ -720,8 +764,9 @@ elif st.session_state.view == 'DETAILS':
                 merged_contatos.update(st.session_state.multi_expanded_emails)
 
                 # Renderização do Grafo Interativo com Custom Component (Todos os botões integrados na janela)
+                nos_atuais = []
                 try:
-                    graph_event, _ = graph_builder.render_interactive_graph(
+                    graph_event, nos_atuais = graph_builder.render_interactive_graph(
                         root_data=dados,
                         socios_empresas=merged_socios,
                         contatos_empresas=merged_contatos,
@@ -741,7 +786,7 @@ elif st.session_state.view == 'DETAILS':
                     )
                 except Exception as comp_err:
                     # Fallback com HTML padrão caso o componente dê erro
-                    html_code, _ = graph_builder.build_graph_html(
+                    html_code, nos_atuais = graph_builder.build_graph_html(
                         root_data=dados,
                         socios_empresas=merged_socios,
                         contatos_empresas=merged_contatos,
@@ -938,7 +983,7 @@ elif st.session_state.view == 'DETAILS':
                     with col_ex1:
                         opcoes_excluir = {
                             f"{n['label']} [{n['type']}]": n['id']
-                            for n in nos_atuais
+                            for n in (nos_atuais or [])
                             if not n['id'].startswith('cnpj_' + str(cnpj))
                         }
                         if opcoes_excluir:
@@ -1000,7 +1045,7 @@ elif st.session_state.view == 'DETAILS':
 
                     with sub_tm2:
                         st.caption("Conecte dois nós do grafo com uma aresta destacada (vermelho neon / tracejada).")
-                        todos_nos_map = {f"{n['label']} [{n['type']}]": n['id'] for n in nos_atuais}
+                        todos_nos_map = {f"{n['label']} [{n['type']}]": n['id'] for n in (nos_atuais or [])}
                         if len(todos_nos_map) >= 2:
                             col_e1, col_e2, col_e3 = st.columns([2, 2, 2])
                             with col_e1:
@@ -1036,93 +1081,108 @@ elif st.session_state.view == 'DETAILS':
                 razao_empresa = dados.get('nome_empresarial', '') or dados.get('razao_social', '')
                 cnpj_clean = limpar_digitos(cnpj)
 
-                col_j1, col_j2 = st.columns([3, 1])
+                col_j1, col_j2 = st.columns([3, 1.2])
                 with col_j1:
                     st.write(f"**Empresa Alvo:** {razao_empresa} (`{formatar_cnpj(cnpj_clean)}`)")
                 with col_j2:
-                    btn_buscar_judicial = st.button("🔍 Rastrear Processos", key=f"btn_search_jud_{cnpj_clean}", use_container_width=True)
+                    btn_rebuscar_judicial = st.button("🔄 Atualizar Consulta Judicial", key=f"btn_refresh_jud_{cnpj_clean}", use_container_width=True)
 
-                # Busca automática ou por botão
-                if btn_buscar_judicial or (cnpj_clean in st.session_state.judicial_processes):
-                    if btn_buscar_judicial or cnpj_clean not in st.session_state.judicial_processes:
-                        with st.spinner(f"Consultando bases públicas do Poder Judiciário para o CNPJ {formatar_cnpj(cnpj_clean)}..."):
-                            procs_cnpj = st.session_state.judicial_service.consultar_por_cnpj(
-                                cnpj=cnpj_clean,
-                                razao_social=razao_empresa,
-                                max_itens=25,
-                                enriquecer_datajud=True,
+                # Busca automática ao entrar na aba ou ao clicar em Atualizar
+                precisa_buscar = (cnpj_clean not in st.session_state.judicial_processes) or btn_rebuscar_judicial
+                if precisa_buscar:
+                    with st.spinner(f"Consultando processos no DataJud (CNJ) e DJEN para {formatar_cnpj(cnpj_clean)}..."):
+                        procs_cnpj = st.session_state.judicial_service.consultar_por_cnpj(
+                            cnpj=cnpj_clean,
+                            razao_social=razao_empresa,
+                            max_itens=25,
+                            enriquecer_datajud=True,
+                        )
+                        st.session_state.judicial_processes[cnpj_clean] = procs_cnpj
+
+                        # Auto-sincroniza processos com o grafo da empresa
+                        if procs_cnpj:
+                            vincs = st.session_state.judicial_service.obter_vinculos_documento(cnpj_clean)
+                            new_nodes, new_edges = converter_processos_para_elementos_grafo(
+                                processos=procs_cnpj,
+                                vinculos=vincs,
+                                id_no_origem=f"cnpj_{cnpj_clean}"
                             )
-                            st.session_state.judicial_processes[cnpj_clean] = procs_cnpj
+                            for n in new_nodes:
+                                if not any(x['id'] == n['id'] for x in st.session_state.judicial_graph_nodes):
+                                    st.session_state.judicial_graph_nodes.append(n)
+                            for e in new_edges:
+                                if not any(x['from'] == e['from'] and x['to'] == e['to'] for x in st.session_state.judicial_graph_edges):
+                                    st.session_state.judicial_graph_edges.append(e)
 
-                    procs_empresa = st.session_state.judicial_processes.get(cnpj_clean, [])
-                    vinculos_empresa = st.session_state.judicial_service.obter_vinculos_documento(cnpj_clean)
+                procs_empresa = st.session_state.judicial_processes.get(cnpj_clean, [])
+                vinculos_empresa = st.session_state.judicial_service.obter_vinculos_documento(cnpj_clean)
 
-                    if not procs_empresa:
-                        st.info("ℹ️ Nenhuma citação ou processo judicial público localizado para este CNPJ nas bases consultadas.")
-                    else:
-                        stats = st.session_state.judicial_service.obter_estatisticas_documento(cnpj_clean)
-                        m1, m2, m3, m4 = st.columns(4)
-                        m1.metric("Total de Ações", stats.get("total_processos", 0))
-                        m2.metric("Como Ré / Executada", stats.get("como_reu", 0), help="Polo Passivo (Maior Risco Forense)")
-                        m3.metric("Como Autora", stats.get("como_autor", 0), help="Polo Ativo")
-                        m4.metric("Tribunais Distintos", len(stats.get("distribuicao_tribunais", {})))
+                if not procs_empresa:
+                    st.info("ℹ️ Nenhuma citação ou processo judicial público localizado para este CNPJ nas bases DataJud e DJEN até o momento.")
+                else:
+                    stats = st.session_state.judicial_service.obter_estatisticas_documento(cnpj_clean)
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Total de Ações", stats.get("total_processos", 0))
+                    m2.metric("Como Ré / Executada", stats.get("como_reu", 0), help="Polo Passivo (Maior Risco Forense)")
+                    m3.metric("Como Autora", stats.get("como_autor", 0), help="Polo Ativo")
+                    m4.metric("Tribunais Distintos", len(stats.get("distribuicao_tribunais", {})))
 
-                        col_btn_g, _ = st.columns([2, 3])
-                        with col_btn_g:
-                            if st.button("🕸️ Conectar Processos ao Grafo Interativo", key=f"btn_add_graph_{cnpj_clean}"):
-                                new_nodes, new_edges = converter_processos_para_elementos_grafo(
-                                    processos=procs_empresa,
-                                    vinculos=vinculos_empresa,
-                                    id_no_origem=f"empresa_{cnpj_clean}"
-                                )
-                                for n in new_nodes:
-                                    if not any(x['id'] == n['id'] for x in st.session_state.judicial_graph_nodes):
-                                        st.session_state.judicial_graph_nodes.append(n)
-                                for e in new_edges:
-                                    if not any(x['from'] == e['from'] and x['to'] == e['to'] for x in st.session_state.judicial_graph_edges):
-                                        st.session_state.judicial_graph_edges.append(e)
-                                st.success(f"{len(new_nodes)} processos vinculados ao Grafo Interativo! Volte na aba 'Grafo de Relacionamentos' para visualizar.")
-                                st.rerun()
+                    col_btn_g, _ = st.columns([2.5, 2.5])
+                    with col_btn_g:
+                        if st.button("🕸️ Conectar Processos ao Grafo Interativo", key=f"btn_add_graph_{cnpj_clean}"):
+                            new_nodes, new_edges = converter_processos_para_elementos_grafo(
+                                processos=procs_empresa,
+                                vinculos=vinculos_empresa,
+                                id_no_origem=f"cnpj_{cnpj_clean}"
+                            )
+                            for n in new_nodes:
+                                if not any(x['id'] == n['id'] for x in st.session_state.judicial_graph_nodes):
+                                    st.session_state.judicial_graph_nodes.append(n)
+                            for e in new_edges:
+                                if not any(x['from'] == e['from'] and x['to'] == e['to'] for x in st.session_state.judicial_graph_edges):
+                                    st.session_state.judicial_graph_edges.append(e)
+                            st.success(f"✅ {len(new_nodes)} processos sincronizados com o Grafo! Acesse a aba 'Grafo de Relacionamentos' para visualizar.")
+                            st.rerun()
 
-                        st.markdown("---")
-                        st.write("#### 📜 Processos Localizados")
+                    st.markdown("---")
+                    st.write("#### 📜 Processos Localizados")
 
-                        for p in procs_empresa:
-                            # Identifica o polo da empresa
-                            vinc = next((v for v in vinculos_empresa if v.numero_processo == p.numero), None)
-                            is_reu = vinc and vinc.polo == PoloProcessual.PASSIVO
-                            badge_polo = "🚨 **RÉ / EXECUTADA (POLO PASSIVO)**" if is_reu else "⚖️ **AUTORA (POLO ATIVO)**" if vinc and vinc.polo == PoloProcessual.ATIVO else "📌 **PARTE CADASTRADA**"
-                            card_color = "#FFEBEE" if is_reu else "#E8F5E9"
+                    for p in procs_empresa:
+                        # Identifica o polo da empresa
+                        vinc = next((v for v in vinculos_empresa if v.numero_processo == p.numero), None)
+                        is_reu = vinc and vinc.polo == PoloProcessual.PASSIVO
+                        badge_polo = "🚨 **RÉ / EXECUTADA (POLO PASSIVO)**" if is_reu else "⚖️ **AUTORA (POLO ATIVO)**" if vinc and vinc.polo == PoloProcessual.ATIVO else "📌 **PARTE CADASTRADA**"
+                        card_color = "#FFEBEE" if is_reu else "#E8F5E9"
 
-                            with st.expander(f"⚖️ {p.tribunal} | {p.numero_formatado} — {p.classe or 'Processo Judicial'}"):
-                                st.markdown(f"**Polo:** {badge_polo}")
-                                c_info1, c_info2 = st.columns(2)
-                                with c_info1:
-                                    st.write(f"**Tribunal:** {p.tribunal} ({p.grau or 'Instância Única'})")
-                                    st.write(f"**Órgão Julgador:** {p.orgao_julgador or 'Não informado'}")
-                                    st.write(f"**Classe:** {p.classe or 'Não informada'}")
-                                with c_info2:
-                                    st.write(f"**Data Ajuizamento:** {p.data_ajuizamento or 'N/I'}")
-                                    st.write(f"**Última Movimentação / Publicação:** {p.data_ultima_atualizacao or 'N/I'}")
-                                    st.write(f"**Origem do Dado:** {', '.join(p.origens)}")
+                        with st.expander(f"⚖️ {p.tribunal} | {p.numero_formatado} — {p.classe or 'Processo Judicial'}"):
+                            st.markdown(f"**Polo:** {badge_polo}")
+                            c_info1, c_info2 = st.columns(2)
+                            with c_info1:
+                                st.write(f"**Tribunal:** {p.tribunal} ({p.grau or 'Instância Única'})")
+                                st.write(f"**Órgão Julgador:** {p.orgao_julgador or 'Não informado'}")
+                                st.write(f"**Classe:** {p.classe or 'Não informada'}")
+                            with c_info2:
+                                st.write(f"**Data Ajuizamento:** {p.data_ajuizamento or 'N/I'}")
+                                st.write(f"**Última Movimentação / Publicação:** {p.data_ultima_atualizacao or 'N/I'}")
+                                st.write(f"**Origem do Dado:** {', '.join(p.origens)}")
 
-                                if p.assuntos:
-                                    st.write(f"**Assuntos:** {', '.join(p.assuntos)}")
+                            if p.assuntos:
+                                st.write(f"**Assuntos:** {', '.join(p.assuntos)}")
 
-                                if p.partes:
-                                    st.write("**Partes Envolvidas:**")
-                                    for parte in p.partes:
-                                        p_icon = "🟢" if parte.polo == PoloProcessual.ATIVO else ("🔴" if parte.polo == PoloProcessual.PASSIVO else "⚪")
-                                        advs = f" (Advogados: {', '.join(a.nome for a in parte.advogados)})" if parte.advogados else ""
-                                        st.write(f"{p_icon} **{parte.polo.value}:** {parte.nome}{advs}")
+                            if p.partes:
+                                st.write("**Partes Envolvidas:**")
+                                for parte in p.partes:
+                                    p_icon = "🟢" if parte.polo == PoloProcessual.ATIVO else ("🔴" if parte.polo == PoloProcessual.PASSIVO else "⚪")
+                                    advs = f" (Advogados: {', '.join(a.nome for a in parte.advogados)})" if parte.advogados else ""
+                                    st.write(f"{p_icon} **{parte.polo.value}:** {parte.nome}{advs}")
 
-                                if p.movimentos:
-                                    st.write("**Histórico Recente de Movimentações (DataJud):**")
-                                    for mov in p.movimentos[:5]:
-                                        st.caption(f"• **{mov.data_hora or ''}** — {mov.nome} {mov.complemento or ''}")
+                            if p.movimentos:
+                                st.write("**Histórico Recente de Movimentações (DataJud):**")
+                                for mov in p.movimentos[:5]:
+                                    st.caption(f"• **{mov.data_hora or ''}** — {mov.nome} {mov.complemento or ''}")
 
-                                if p.link_consulta:
-                                    st.link_button("🌐 Acessar Publicação na Íntegra", p.link_consulta)
+                            if p.link_consulta:
+                                st.link_button("🌐 Acessar Publicação na Íntegra", p.link_consulta)
 
 
 elif st.session_state.view == 'JUDICIAL':

@@ -116,3 +116,42 @@ def formatar_numero_processo_cnj(numero: Optional[str]) -> str:
     if len(d) == 20:
         return f"{d[0:7]}-{d[7:9]}.{d[9:13]}.{d[13:14]}.{d[14:16]}.{d[16:20]}"
     return str(numero or "").strip()
+
+
+def formatar_cnae(cnae_str: Optional[str]) -> str:
+    """Formata CNAE de 7 dígitos para 0000-0/00."""
+    d = limpar_digitos(cnae_str)
+    if len(d) == 7:
+        return f"{d[:4]}-{d[4]}/{d[5:]}"
+    return str(cnae_str or "").strip()
+
+
+def obter_cnae_completo(cnae_cod: Optional[str], cnae_desc: Optional[str] = "") -> Tuple[str, str]:
+    """
+    Retorna tupla (cnae_formatado, cnae_descricao_oficial).
+    Formata o código CNAE (ex: 9312-3/00) e enriquece a descrição textual
+    consultando a API pública do IBGE se estiver ausente ou puramente numérica.
+    """
+    import urllib.request
+    import json
+
+    cnae_fmt = formatar_cnae(cnae_cod)
+    cnae_limpo = limpar_digitos(cnae_cod)
+
+    desc_atual = str(cnae_desc or "").strip()
+    if desc_atual and not desc_atual.isdigit() and len(desc_atual) > 3 and desc_atual.lower() != "não informada":
+        return cnae_fmt, desc_atual
+
+    if cnae_limpo:
+        try:
+            url = f"https://servicodados.ibge.gov.br/api/v2/cnae/subclasses/{cnae_limpo}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if isinstance(data, dict) and "descricao" in data:
+                    return cnae_fmt, str(data["descricao"]).strip().upper()
+        except Exception:
+            pass
+
+    return cnae_fmt, desc_atual or "Atividade econômica não informada"
+

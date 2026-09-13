@@ -78,8 +78,8 @@ class MovimentoProcessual:
 @dataclass
 class ProcessoJudicial:
     numero: str
-    numero_formatado: str
-    tribunal: str
+    numero_formatado: str = ""
+    tribunal: str = ""
     grau: Optional[str] = None
     classe: Optional[str] = None
     orgao_julgador: Optional[str] = None
@@ -90,6 +90,11 @@ class ProcessoJudicial:
     movimentos: List[MovimentoProcessual] = field(default_factory=list)
     origens: List[str] = field(default_factory=list)
     link_consulta: Optional[str] = None
+
+    def __post_init__(self):
+        if not self.numero_formatado and self.numero:
+            from .validators import formatar_numero_processo_cnj
+            self.numero_formatado = formatar_numero_processo_cnj(self.numero)
 
     @property
     def polo_ativo(self) -> List[ParteProcessual]:
@@ -124,17 +129,30 @@ class VinculoProcessual:
     e um Processo Judicial específico.
     """
     documento: str
-    documento_formatado: str
-    tipo_documento: TipoDocumento
-    nome_parte: str
-    numero_processo: str
-    numero_formatado: str
-    tribunal: str
-    polo: PoloProcessual
-    papel: str
+    documento_formatado: str = ""
+    tipo_documento: TipoDocumento = TipoDocumento.OUTRO
+    nome_parte: str = ""
+    numero_processo: str = ""
+    numero_formatado: str = ""
+    tribunal: str = ""
+    polo: PoloProcessual = PoloProcessual.DESCONHECIDO
+    papel: str = ""
     data_vinculo: Optional[str] = None
     fonte: str = "DATAJUD"
     confianca: float = 1.0
+
+    def __post_init__(self):
+        from .validators import formatar_cpf, formatar_cnpj, formatar_numero_processo_cnj, limpar_digitos
+        doc_clean = limpar_digitos(self.documento)
+        if not self.documento_formatado:
+            if len(doc_clean) == 14:
+                self.documento_formatado = formatar_cnpj(doc_clean)
+            elif len(doc_clean) == 11:
+                self.documento_formatado = formatar_cpf(doc_clean)
+            else:
+                self.documento_formatado = self.documento
+        if not self.numero_formatado and self.numero_processo:
+            self.numero_formatado = formatar_numero_processo_cnj(self.numero_processo)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
