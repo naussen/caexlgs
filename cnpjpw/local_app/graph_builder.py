@@ -72,7 +72,9 @@ def build_graph_elements(
     auto_filter_accountants: bool = False,
     manual_nodes: list = None,
     manual_edges: list = None,
-    extra_companies: dict = None
+    extra_companies: dict = None,
+    judicial_nodes: list = None,
+    judicial_edges: list = None
 ) -> Tuple[List[Dict], List[Dict], List[Dict]]:
     """
     Processa todos os dados e constrói as listas de nós e arestas para a rede.
@@ -559,6 +561,27 @@ def build_graph_elements(
             if add_node(t_id, label=tel_label, title=f"<b>📞 Telefone:</b> {tel_label}", color=COLOR_TELEFONE, size=18, shape="diamond", node_type="TELEFONE", raw_val=ext_tel):
                 add_edge(ext_id, t_id, label="telefone")
 
+    # 11. Processos Judiciais Integrados (DataJud & DJEN)
+    if judicial_nodes:
+        for jn in judicial_nodes:
+            if jn.get("id") not in excluded_nodes:
+                nodes_dict[jn["id"]] = {
+                    "id": jn["id"],
+                    "label": jn.get("label", ""),
+                    "title": jn.get("title", ""),
+                    "shape": jn.get("shape", "box"),
+                    "margin": jn.get("margin", 8),
+                    "color": jn.get("color", {"background": "#F3E5F5", "border": "#4A148C"}),
+                    "font": jn.get("font", {"size": 11, "color": "#1A237E", "bold": True}),
+                    "borderWidth": jn.get("borderWidth", 2),
+                    "_type": "PROCESSO",
+                    "_raw_label": jn.get("label", ""),
+                    "_raw_val": jn.get("id", "")
+                }
+    if judicial_edges:
+        for je in judicial_edges:
+            edges_list.append(je)
+
     nodes_list = list(nodes_dict.values())
     available_nodes = [
         {"id": n["id"], "label": n["_raw_label"], "type": n["_type"], "val": n.get("_raw_val", n["id"])}
@@ -581,7 +604,9 @@ def render_interactive_graph(
     manual_edges: list = None,
     height: int = 850,
     extra_companies: dict = None,
-    key: str = "main_interactive_graph"
+    key: str = "main_interactive_graph",
+    judicial_nodes: list = None,
+    judicial_edges: list = None
 ) -> Tuple[Optional[Dict[str, Any]], List[Dict]]:
     """
     Renderiza o grafo interativo através do Streamlit Custom Component com suporte
@@ -599,7 +624,9 @@ def render_interactive_graph(
         auto_filter_accountants=auto_filter_accountants,
         manual_nodes=manual_nodes,
         manual_edges=manual_edges,
-        extra_companies=extra_companies
+        extra_companies=extra_companies,
+        judicial_nodes=judicial_nodes,
+        judicial_edges=judicial_edges
     )
 
     comp_value = _vis_graph_component(
@@ -625,7 +652,9 @@ def build_graph_html(
     manual_nodes: list = None,
     manual_edges: list = None,
     height: str = "850px",
-    extra_companies: dict = None
+    extra_companies: dict = None,
+    judicial_nodes: list = None,
+    judicial_edges: list = None
 ) -> Tuple[str, List[Dict]]:
     """
     Retorna HTML independente com Vis.js interativo (usado para exportação e fallback).
@@ -642,7 +671,9 @@ def build_graph_html(
         auto_filter_accountants=auto_filter_accountants,
         manual_nodes=manual_nodes,
         manual_edges=manual_edges,
-        extra_companies=extra_companies
+        extra_companies=extra_companies,
+        judicial_nodes=judicial_nodes,
+        judicial_edges=judicial_edges
     )
 
     nodes_json = json.dumps(nodes_list, ensure_ascii=False)
