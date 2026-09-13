@@ -3,7 +3,6 @@ gcp-key.json
 *.json
 !package.json
 .streamlit/secrets.toml
-.streamlit/
 
 # Arquivos Compactados e Dumps
 *.zip
