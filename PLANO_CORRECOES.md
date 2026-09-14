@@ -196,7 +196,19 @@ Já existe um componente declarado em `graph_builder.py` e uma implementação e
 
 Os botões internos e externos produzem o mesmo resultado e usam o mesmo handler Python. Nenhum código acessa diretamente o DOM do frame pai.
 
-### Fase 3 — Unificar o dispatcher de ações do grafo
+### Fase 3 — Unificar o dispatcher de ações do grafo [CONCLUÍDA]
+
+> **Status:** Concluída integralmente.
+> - Criado o módulo `cnpjpw/local_app/graph_dispatcher.py` com a função única `handle_graph_action(event, expand_fn, root_id)`.
+> - Validação estrita de eventos (`validate_graph_event`), rejeitando não-dicionários, ações desconhecidas ou campos obrigatórios ausentes.
+> - Roteamento padronizado de todas as ações:
+>   - `expand` -> `executar_expansao_entidade()`;
+>   - `delete` -> `exclude_graph_node()` com proteção ativa bloqueando exclusão do nó da empresa raiz;
+>   - `toggle_feature` -> alternância controlada de `expand_socios` e `expand_contacts`;
+>   - `clear` -> reinicialização completa via `clear_graph_expansions()`.
+> - Todos os controles externos (toolbar e seletor) agora usam a mesma estrutura de evento e chamam o dispatcher central.
+> - Removido o processamento de ações do grafo via query parameters da URL (`expand_type`, `exclude_node`).
+> - Suíte de testes `cnpjpw/tests/test_graph_events.py` ampliada com testes de validação, bloqueio da raiz e roteamento (11/11 aprovados).
 
 #### Objetivo
 

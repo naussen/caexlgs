@@ -226,5 +226,114 @@ class TestGraphEvents(unittest.TestCase):
             self.assertGreater(len(kwargs["edges"]), 0)
             self.assertEqual(comp_val, {"action": "test"})
 
+    def test_graph_dispatcher_event_validation(self):
+        """Valida a rejeição estrita de eventos malformados pelo dispatcher."""
+        from cnpjpw.local_app import graph_dispatcher
+
+        # Não-dicionário
+        valido, err = graph_dispatcher.validate_graph_event("string_invalida")
+        self.assertFalse(valido)
+        self.assertIn("dicionário", err)
+
+        # Ação não permitida
+        valido, err = graph_dispatcher.validate_graph_event({"action": "drop_database"})
+        self.assertFalse(valido)
+        self.assertIn("Ação inválida", err)
+
+        # Expand sem entity_value
+        valido, err = graph_dispatcher.validate_graph_event({"action": "expand", "entity_type": "EMPRESA"})
+        self.assertFalse(valido)
+        self.assertIn("entity_value", err)
+
+        # Delete sem node_id
+        valido, err = graph_dispatcher.validate_graph_event({"action": "delete"})
+        self.assertFalse(valido)
+        self.assertIn("node_id", err)
+
+        # Toggle com feature desconhecida
+        valido, err = graph_dispatcher.validate_graph_event({"action": "toggle_feature", "feature": "modo_escuro"})
+        self.assertFalse(valido)
+        self.assertIn("Feature inválida", err)
+
+    def test_graph_dispatcher_handles_all_actions(self):
+        """Valida o roteamento completo das 4 ações permitidas pelo dispatcher unificado."""
+        from cnpjpw.local_app import graph_dispatcher
+        import streamlit as st
+
+        st.session_state["last_processed_graph_nonce"] = None
+        st.session_state["graph_excluded_nodes"] = set()
+        st.session_state["graph_expand_socios"] = False
+        st.session_state["graph_expand_contacts"] = False
+
+        expanded_called = []
+        def fake_expand(t, v, l):
+            expanded_called.append((t, v, l))
+
+        # 1. Expand
+        res_exp = graph_dispatcher.handle_graph_action({
+            "action": "expand",
+            "entity_type": "EMPRESA",
+            "entity_value": "99999999000199",
+            "entity_label": "NOVA EMPRESA",
+            "nonce": "test_exp_nonce"
+        }, expand_fn=fake_expand)
+        self.assertTrue(res_exp)
+        self.assertEqual(len(expanded_called), 1)
+        self.assertEqual(expanded_called[0][1], "99999999000199")
+
+        # 2. Delete
+        res_del = graph_dispatcher.handle_graph_action({
+            "action": "delete",
+            "node_id": "socio_teste",
+            "entity_label": "Sócio Teste",
+            "nonce": "test_del_nonce"
+        })
+        self.assertTrue(res_del)
+        self.assertIn("socio_teste", st.session_state["graph_excluded_nodes"])
+
+        # 3. Toggle Feature
+        res_tog = graph_dispatcher.handle_graph_action({
+            "action": "toggle_feature",
+            "feature": "expand_socios",
+            "nonce": "test_tog_nonce"
+        })
+        self.assertTrue(res_tog)
+        self.assertTrue(st.session_state["graph_expand_socios"])
+
+        # 4. Clear
+        res_clr = graph_dispatcher.handle_graph_action({
+            "action": "clear",
+            "nonce": "test_clr_nonce"
+        })
+        self.assertTrue(res_clr)
+        self.assertEqual(len(st.session_state["graph_excluded_nodes"]), 0)
+        self.assertFalse(st.session_state["graph_expand_socios"])
+
+    def test_graph_dispatcher_blocks_root_deletion(self):
+        """Valida que a exclusão da empresa raiz sob análise é terminantemente bloqueada."""
+        from cnpjpw.local_app import graph_dispatcher
+        import streamlit as st
+
+        root_cnpj = "12345678000190"
+        st.session_state["graph_excluded_nodes"] = set()
+
+        # Tentativa de excluir CNPJ raiz puro
+        res1 = graph_dispatcher.handle_graph_action({
+            "action": "delete",
+            "node_id": root_cnpj,
+            "nonce": "n_root_1"
+        }, root_id=root_cnpj)
+        self.assertFalse(res1)
+        self.assertNotIn(root_cnpj, st.session_state["graph_excluded_nodes"])
+
+        # Tentativa de excluir nó com prefixo cnpj_
+        res2 = graph_dispatcher.handle_graph_action({
+            "action": "delete",
+            "node_id": f"cnpj_{root_cnpj}",
+            "nonce": "n_root_2"
+        }, root_id=root_cnpj)
+        self.assertFalse(res2)
+        self.assertNotIn(f"cnpj_{root_cnpj}", st.session_state["graph_excluded_nodes"])
+
 if __name__ == "__main__":
     unittest.main()

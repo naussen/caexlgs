@@ -17,6 +17,7 @@ import report_generator
 import pandas as pd
 import time
 import auth
+import graph_dispatcher
 
 st.set_page_config(page_title="POMELO — Inteligência Societária", page_icon="🍊", layout="wide")
 
@@ -183,29 +184,6 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "")
                         st.warning(f"Nenhuma outra empresa encontrada com e-mail {em_limpo}.")
             else:
                 st.info("As empresas deste e-mail já estão expandidas na rede.")
-
-# Processa requisições de expansão ou exclusão vindas do grafo ou URL direta
-_q_exp_type = st.query_params.get("expand_type")
-_q_exp_val = st.query_params.get("expand_val")
-_q_exp_lbl = st.query_params.get("expand_label", _q_exp_val)
-_q_del_node = st.query_params.get("exclude_node")
-
-if _q_exp_type and _q_exp_val:
-    executar_expansao_entidade(_q_exp_type, _q_exp_val, _q_exp_lbl)
-    st.session_state.view = 'DETAILS'
-    if "expand_type" in st.query_params:
-        del st.query_params["expand_type"]
-    if "expand_val" in st.query_params:
-        del st.query_params["expand_val"]
-    if "expand_label" in st.query_params:
-        del st.query_params["expand_label"]
-
-if _q_del_node:
-    st.session_state.graph_excluded_nodes.add(_q_del_node)
-    st.session_state.view = 'DETAILS'
-    st.toast("✕ Entidade removida da rede.")
-    if "exclude_node" in st.query_params:
-        del st.query_params["exclude_node"]
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def obter_cnae_completo(cnae_cod: str, cnae_desc: str = ""):
@@ -798,29 +776,27 @@ elif st.session_state.view == 'DETAILS':
                 with c_btn_exp1:
                     lbl_soc = "👥 Ocultar Sócios (2º Grau)" if st.session_state.get('graph_expand_socios') else "👥 Expandir Sócios (2º Grau)"
                     if st.button(lbl_soc, key="btn_toggle_expand_socios", use_container_width=True):
-                        st.session_state.graph_expand_socios = not st.session_state.get('graph_expand_socios', False)
+                        graph_dispatcher.handle_graph_action({
+                            "action": "toggle_feature",
+                            "feature": "expand_socios",
+                            "nonce": f"ext_toggle_socios_{time.time()}"
+                        })
                         st.rerun()
                 with c_btn_exp2:
                     lbl_cont = "📞 Ocultar Contatos" if st.session_state.get('graph_expand_contacts') else "📞 Expandir Contatos"
                     if st.button(lbl_cont, key="btn_toggle_expand_contacts", use_container_width=True):
-                        st.session_state.graph_expand_contacts = not st.session_state.get('graph_expand_contacts', False)
+                        graph_dispatcher.handle_graph_action({
+                            "action": "toggle_feature",
+                            "feature": "expand_contacts",
+                            "nonce": f"ext_toggle_contacts_{time.time()}"
+                        })
                         st.rerun()
                 with c_btn_exp3:
                     if st.button("🧹 Limpar Relações Expandidas", key="btn_clear_graph_exp", use_container_width=True):
-                        st.session_state.graph_excluded_nodes = set()
-                        st.session_state.graph_false_positive_accountants = set()
-                        st.session_state.graph_manual_accountants = set()
-                        st.session_state.graph_manual_nodes = []
-                        st.session_state.graph_manual_edges = []
-                        st.session_state.graph_cache_socios_empresas = {}
-                        st.session_state.graph_cache_contatos_empresas = {}
-                        st.session_state.multi_expanded_companies = {}
-                        st.session_state.multi_expanded_socios = {}
-                        st.session_state.multi_expanded_phones = {}
-                        st.session_state.multi_expanded_emails = {}
-                        st.session_state.graph_expand_socios = False
-                        st.session_state.graph_expand_contacts = False
-                        st.toast("🧹 Grafo reiniciado para a empresa raiz.")
+                        graph_dispatcher.handle_graph_action({
+                            "action": "clear",
+                            "nonce": f"ext_clear_{time.time()}"
+                        })
                         st.rerun()
 
                 # Renderização oficial via Streamlit Custom Component (Fase 2)
@@ -843,53 +819,14 @@ elif st.session_state.view == 'DETAILS':
                     manual_accountants=st.session_state.graph_manual_accountants
                 )
 
-                # Processamento seguro de eventos do Custom Component (um por nonce)
-                if 'last_processed_graph_nonce' not in st.session_state:
-                    st.session_state.last_processed_graph_nonce = None
-
+                # Despacho unificado de eventos do componente interativo (Fase 3)
                 if comp_event and isinstance(comp_event, dict):
-                    ev_nonce = comp_event.get("nonce")
-                    if ev_nonce and ev_nonce != st.session_state.last_processed_graph_nonce:
-                        st.session_state.last_processed_graph_nonce = ev_nonce
-                        ev_act = comp_event.get("action")
-                        if ev_act == "expand":
-                            ev_type = comp_event.get("entity_type") or comp_event.get("type")
-                            ev_val = comp_event.get("entity_value") or comp_event.get("val")
-                            ev_lbl = comp_event.get("entity_label") or comp_event.get("label") or ev_val
-                            if ev_type and ev_val:
-                                executar_expansao_entidade(ev_type, ev_val, ev_lbl)
-                                st.rerun()
-                        elif ev_act == "delete":
-                            ev_nid = comp_event.get("node_id") or comp_event.get("id")
-                            if ev_nid:
-                                st.session_state.graph_excluded_nodes.add(ev_nid)
-                                ev_lbl = comp_event.get("entity_label") or ev_nid
-                                st.toast(f"✕ Entidade '{ev_lbl}' removida da rede.")
-                                st.rerun()
-                        elif ev_act == "toggle_feature":
-                            ev_feat = comp_event.get("feature")
-                            if ev_feat == "expand_socios":
-                                st.session_state.graph_expand_socios = not st.session_state.get('graph_expand_socios', False)
-                                st.rerun()
-                            elif ev_feat == "expand_contacts":
-                                st.session_state.graph_expand_contacts = not st.session_state.get('graph_expand_contacts', False)
-                                st.rerun()
-                        elif ev_act == "clear":
-                            st.session_state.graph_excluded_nodes = set()
-                            st.session_state.graph_false_positive_accountants = set()
-                            st.session_state.graph_manual_accountants = set()
-                            st.session_state.graph_manual_nodes = []
-                            st.session_state.graph_manual_edges = []
-                            st.session_state.graph_cache_socios_empresas = {}
-                            st.session_state.graph_cache_contatos_empresas = {}
-                            st.session_state.multi_expanded_companies = {}
-                            st.session_state.multi_expanded_socios = {}
-                            st.session_state.multi_expanded_phones = {}
-                            st.session_state.multi_expanded_emails = {}
-                            st.session_state.graph_expand_socios = False
-                            st.session_state.graph_expand_contacts = False
-                            st.toast("🧹 Grafo reiniciado para a empresa raiz.")
-                            st.rerun()
+                    if graph_dispatcher.handle_graph_action(
+                        comp_event,
+                        expand_fn=executar_expansao_entidade,
+                        root_id=st.session_state.get('current_cnpj')
+                    ):
+                        st.rerun()
 
                 # Seletor Pontual de Expansão / Exclusão de Entidades
                 opcoes_nos = {
@@ -911,13 +848,25 @@ elif st.session_state.view == 'DETAILS':
                         if st.button("✚ Expandir Nó", key="btn_act_expand_node", use_container_width=True, help="Busca e adiciona à rede todas as empresas e conexões vinculadas a esta entidade"):
                             target_n = next((n for n in nos_atuais if n["id"] == sel_node_id), None)
                             if target_n:
-                                executar_expansao_entidade(target_n["type"], target_n["val"], target_n["label"])
+                                graph_dispatcher.handle_graph_action({
+                                    "action": "expand",
+                                    "node_id": target_n["id"],
+                                    "entity_type": target_n["type"],
+                                    "entity_value": target_n["val"],
+                                    "entity_label": target_n["label"],
+                                    "nonce": f"ext_expand_{time.time()}"
+                                }, expand_fn=executar_expansao_entidade, root_id=st.session_state.get('current_cnpj'))
                                 st.rerun()
                     with c_act_del:
                         if st.button("✕ Remover Nó", key="btn_act_del_node", use_container_width=True, help="Remove temporariamente esta entidade do grafo"):
+                            target_n = next((n for n in nos_atuais if n["id"] == sel_node_id), None)
                             if sel_node_id:
-                                st.session_state.graph_excluded_nodes.add(sel_node_id)
-                                st.toast("✕ Entidade removida do grafo.")
+                                graph_dispatcher.handle_graph_action({
+                                    "action": "delete",
+                                    "node_id": sel_node_id,
+                                    "entity_label": target_n["label"] if target_n else sel_node_id,
+                                    "nonce": f"ext_delete_{time.time()}"
+                                }, root_id=st.session_state.get('current_cnpj'))
                                 st.rerun()
 
                 st.divider()
