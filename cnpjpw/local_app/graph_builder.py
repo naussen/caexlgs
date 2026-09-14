@@ -682,11 +682,14 @@ def render_interactive_graph(
     extra_companies: dict = None,
     key: str = "main_interactive_graph",
     judicial_nodes: list = None,
-    judicial_edges: list = None
+    judicial_edges: list = None,
+    false_positive_accountants: set = None,
+    manual_accountants: set = None
 ) -> Tuple[Optional[Dict[str, Any]], List[Dict]]:
     """
-    Renderiza o grafo interativo através do Streamlit Custom Component com suporte
-    a cliques nos botões de expansão (+), exclusão (x), movimentação livre e sinalização de contadores.
+    Renderiza o grafo interativo através do Streamlit Custom Component oficial com
+    comunicação bidirecional (postMessage), recebendo eventos de expansão (+),
+    exclusão (X), alternância de recursos e limpeza da rede.
     """
     nodes_list, edges_list, available_nodes = build_graph_elements(
         root_data=root_data,
@@ -702,7 +705,9 @@ def render_interactive_graph(
         manual_edges=manual_edges,
         extra_companies=extra_companies,
         judicial_nodes=judicial_nodes,
-        judicial_edges=judicial_edges
+        judicial_edges=judicial_edges,
+        false_positive_accountants=false_positive_accountants,
+        manual_accountants=manual_accountants
     )
 
     comp_value = _vis_graph_component(
@@ -1069,51 +1074,14 @@ def build_graph_html(
           if (actionMenu) actionMenu.style.display = 'none';
           activeTargetNode = null;
 
-          var payload = JSON.stringify({{
+          window.postMessage({{
             action: 'expand',
-            type: nType,
-            val: nVal,
-            label: nLbl,
-            t: Date.now()
-          }});
-
-          // 1. Tenta acionar via DOM Bridge direta com o Streamlit no parent (zero recarregamento)
-          try {{
-            var pDoc = window.parent.document;
-            if (pDoc) {{
-              var inputs = pDoc.querySelectorAll('input');
-              for (var i = 0; i < inputs.length; i++) {{
-                if (inputs[i].getAttribute('aria-label') === 'Graph Bridge Receiver' ||
-                    (inputs[i].id && inputs[i].id.indexOf('graph_bridge_receiver') !== -1)) {{
-                  var nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
-                  nativeSetter.call(inputs[i], payload);
-                  inputs[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
-                  inputs[i].dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }}));
-                  inputs[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
-                  inputs[i].dispatchEvent(new Event('blur', {{ bubbles: true }}));
-                  return;
-                }}
-              }}
-            }}
-          }} catch(errBridge) {{
-            console.warn("DOM Bridge failed:", errBridge);
-          }}
-
-          // 2. Fallback por URL caso a bridge DOM seja restrita
-          var searchParams = new URLSearchParams();
-          if (rootCnpj) searchParams.set('cnpj', rootCnpj);
-          searchParams.set('expand_type', nType);
-          searchParams.set('expand_val', nVal);
-          searchParams.set('expand_label', nLbl);
-          var queryString = '?' + searchParams.toString();
-
-          try {{
-            window.parent.location.href = window.parent.location.pathname + queryString;
-            return;
-          }} catch(errParent) {{}}
-          try {{
-            window.top.location.search = queryString;
-          }} catch(errTop) {{}}
+            node_id: nodeId,
+            entity_type: nType,
+            entity_value: nVal,
+            entity_label: nLbl,
+            nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+          }}, "*");
         }}
 
         function triggerDelete(nodeId) {{
@@ -1123,47 +1091,11 @@ def build_graph_html(
           activeTargetNode = null;
           autoCenter(100);
 
-          var payload = JSON.stringify({{
+          window.postMessage({{
             action: 'delete',
-            type: 'DELETE',
-            val: nodeId,
-            label: nodeId,
-            t: Date.now()
-          }});
-
-          try {{
-            var pDoc = window.parent.document;
-            if (pDoc) {{
-              var inputs = pDoc.querySelectorAll('input');
-              for (var i = 0; i < inputs.length; i++) {{
-                if (inputs[i].getAttribute('aria-label') === 'Graph Bridge Receiver' ||
-                    (inputs[i].id && inputs[i].id.indexOf('graph_bridge_receiver') !== -1)) {{
-                  var nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
-                  nativeSetter.call(inputs[i], payload);
-                  inputs[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
-                  inputs[i].dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }}));
-                  inputs[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
-                  inputs[i].dispatchEvent(new Event('blur', {{ bubbles: true }}));
-                  return;
-                }}
-              }}
-            }}
-          }} catch(errBridge) {{
-            console.warn("DOM Bridge failed:", errBridge);
-          }}
-
-          var searchParams = new URLSearchParams();
-          if (rootCnpj) searchParams.set('cnpj', rootCnpj);
-          searchParams.set('exclude_node', nodeId);
-          var queryString = '?' + searchParams.toString();
-
-          try {{
-            window.parent.location.href = window.parent.location.pathname + queryString;
-            return;
-          }} catch(errParent) {{}}
-          try {{
-            window.top.location.search = queryString;
-          }} catch(errTop) {{}}
+            node_id: nodeId,
+            nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+          }}, "*");
         }}
 
         if (btnExpand) {{

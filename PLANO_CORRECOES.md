@@ -128,7 +128,16 @@ O usuário não autenticado não vê nem aciona nenhuma funcionalidade do POMELO
 
 Antes de disponibilizar o app a outras pessoas, cadastrar valores diferentes de `caexlgs` nos Secrets do Streamlit. Uma credencial compartilhada não fornece auditoria individual.
 
-### Fase 2 — Substituir a bridge DOM pelo componente oficial do Streamlit
+### Fase 2 — Substituir a bridge DOM pelo componente oficial do Streamlit [CONCLUÍDA]
+
+> **Status:** Concluída integralmente.
+> - Substituído `build_graph_html()` + `components.html()` por `graph_builder.render_interactive_graph()` em `cnpjpw/local_app/app.py`.
+> - Removido o campo oculto `Graph Bridge Receiver`, seu callback e hacks de injeção direta no React.
+> - Removida a manipulação de `window.parent.document` e fallbacks por `window.parent.location`.
+> - Padronizado o schema de eventos no componente `components/vis_graph/index.html` com `action`, `node_id`, `entity_type`, `entity_value`, `entity_label`, `feature` e `nonce`.
+> - Implementado controle de deduplicação de eventos por `nonce` em `st.session_state.last_processed_graph_nonce` para evitar repetições em reruns.
+> - Criada suíte de testes dedicada `cnpjpw/tests/test_graph_events.py` cobrindo todos os cenários obrigatórios (8/8 aprovados).
+> - Atualizado `cnpjpw/tests/test_graph_builder.py` para verificar a ausência da bridge DOM legada.
 
 #### Problema
 

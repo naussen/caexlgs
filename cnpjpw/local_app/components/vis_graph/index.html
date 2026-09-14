@@ -362,9 +362,11 @@
       if (nodeObj) {
         sendValue({
           action: 'expand',
-          type: nodeObj._type || 'OUTRO',
-          val: nodeObj._raw_val || nodeObj.id,
-          label: nodeObj.label || nodeObj._raw_label || nodeObj.id,
+          node_id: String(nodeId),
+          entity_type: nodeObj._type || 'OUTRO',
+          entity_value: String(nodeObj._raw_val || nodeObj.id),
+          entity_label: String(nodeObj.label || nodeObj._raw_label || nodeObj.id),
+          feature: null,
           nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
         });
       }
@@ -374,10 +376,15 @@
 
     function deleteNode(nodeId) {
       if (!nodesDataSet) return;
+      const nodeObj = nodesDataSet.get(nodeId);
       nodesDataSet.remove(nodeId);
       sendValue({
         action: 'delete',
-        id: nodeId,
+        node_id: String(nodeId),
+        entity_type: nodeObj ? (nodeObj._type || null) : null,
+        entity_value: nodeObj ? String(nodeObj._raw_val || nodeObj.id) : String(nodeId),
+        entity_label: nodeObj ? String(nodeObj.label || nodeObj._raw_label || nodeObj.id) : String(nodeId),
+        feature: null,
         nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
       });
       if (actionMenu) actionMenu.style.display = 'none';
@@ -437,6 +444,10 @@
     function triggerToggleSocios() {
       sendValue({
         action: 'toggle_feature',
+        node_id: null,
+        entity_type: null,
+        entity_value: null,
+        entity_label: null,
         feature: 'expand_socios',
         nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
       });
@@ -445,6 +456,10 @@
     function triggerToggleContacts() {
       sendValue({
         action: 'toggle_feature',
+        node_id: null,
+        entity_type: null,
+        entity_value: null,
+        entity_label: null,
         feature: 'expand_contacts',
         nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
       });
@@ -454,6 +469,11 @@
       if (confirm("Deseja realmente limpar todos os nós e recomeçar a investigação da rede?")) {
         sendValue({
           action: 'clear',
+          node_id: null,
+          entity_type: null,
+          entity_value: null,
+          entity_label: null,
+          feature: null,
           nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
         });
       }

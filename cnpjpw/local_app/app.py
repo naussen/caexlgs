@@ -712,41 +712,6 @@ elif st.session_state.view == 'DETAILS':
                     st.write("Atividade econômica não informada.")
 
             with tab_grafo:
-                st.html("""
-                    <style>
-                    div[data-testid="stTextInput"]:has(input[aria-label="Graph Bridge Receiver"]) {
-                        display: none !important;
-                        height: 0px !important;
-                        margin: 0px !important;
-                        padding: 0px !important;
-                    }
-                    </style>
-                """)
-                def _handle_graph_bridge_event():
-                    raw_val = st.session_state.get("graph_bridge_receiver", "")
-                    if raw_val:
-                        try:
-                            b_data = json.loads(raw_val)
-                            b_act = b_data.get("action")
-                            b_type = b_data.get("type")
-                            b_val = b_data.get("val")
-                            b_lbl = b_data.get("label", b_val)
-                            if b_act == "expand":
-                                executar_expansao_entidade(b_type, b_val, b_lbl)
-                            elif b_act == "delete":
-                                st.session_state.graph_excluded_nodes.add(b_val)
-                                st.toast("✕ Entidade removida da rede.")
-                        except Exception:
-                            pass
-                        st.session_state["graph_bridge_receiver"] = ""
-
-                st.text_input(
-                    "Graph Bridge Receiver",
-                    key="graph_bridge_receiver",
-                    label_visibility="collapsed",
-                    on_change=_handle_graph_bridge_event
-                )
-
                 st.write("### 🕸️ Grafo Interativo de Relacionamentos")
                 st.caption(
                     "Todos os controles, expansões e filtros estão integrados diretamente na barra superior da janela do grafo. "
@@ -858,8 +823,8 @@ elif st.session_state.view == 'DETAILS':
                         st.toast("🧹 Grafo reiniciado para a empresa raiz.")
                         st.rerun()
 
-                # Renderização direta, instantânea e 100% resiliente via Vis.js HTML standalone
-                html_code, nos_atuais = graph_builder.build_graph_html(
+                # Renderização oficial via Streamlit Custom Component (Fase 2)
+                comp_event, nos_atuais = graph_builder.render_interactive_graph(
                     root_data=dados,
                     socios_empresas=merged_socios,
                     contatos_empresas=merged_contatos,
@@ -871,11 +836,60 @@ elif st.session_state.view == 'DETAILS':
                     auto_filter_accountants=False,
                     manual_nodes=st.session_state.graph_manual_nodes,
                     manual_edges=st.session_state.graph_manual_edges,
-                    height="850px",
+                    height=850,
                     extra_companies=st.session_state.multi_expanded_companies,
+                    key=f"pomelo_graph_comp_{st.session_state.get('current_cnpj')}",
                     false_positive_accountants=st.session_state.graph_false_positive_accountants,
                     manual_accountants=st.session_state.graph_manual_accountants
                 )
+
+                # Processamento seguro de eventos do Custom Component (um por nonce)
+                if 'last_processed_graph_nonce' not in st.session_state:
+                    st.session_state.last_processed_graph_nonce = None
+
+                if comp_event and isinstance(comp_event, dict):
+                    ev_nonce = comp_event.get("nonce")
+                    if ev_nonce and ev_nonce != st.session_state.last_processed_graph_nonce:
+                        st.session_state.last_processed_graph_nonce = ev_nonce
+                        ev_act = comp_event.get("action")
+                        if ev_act == "expand":
+                            ev_type = comp_event.get("entity_type") or comp_event.get("type")
+                            ev_val = comp_event.get("entity_value") or comp_event.get("val")
+                            ev_lbl = comp_event.get("entity_label") or comp_event.get("label") or ev_val
+                            if ev_type and ev_val:
+                                executar_expansao_entidade(ev_type, ev_val, ev_lbl)
+                                st.rerun()
+                        elif ev_act == "delete":
+                            ev_nid = comp_event.get("node_id") or comp_event.get("id")
+                            if ev_nid:
+                                st.session_state.graph_excluded_nodes.add(ev_nid)
+                                ev_lbl = comp_event.get("entity_label") or ev_nid
+                                st.toast(f"✕ Entidade '{ev_lbl}' removida da rede.")
+                                st.rerun()
+                        elif ev_act == "toggle_feature":
+                            ev_feat = comp_event.get("feature")
+                            if ev_feat == "expand_socios":
+                                st.session_state.graph_expand_socios = not st.session_state.get('graph_expand_socios', False)
+                                st.rerun()
+                            elif ev_feat == "expand_contacts":
+                                st.session_state.graph_expand_contacts = not st.session_state.get('graph_expand_contacts', False)
+                                st.rerun()
+                        elif ev_act == "clear":
+                            st.session_state.graph_excluded_nodes = set()
+                            st.session_state.graph_false_positive_accountants = set()
+                            st.session_state.graph_manual_accountants = set()
+                            st.session_state.graph_manual_nodes = []
+                            st.session_state.graph_manual_edges = []
+                            st.session_state.graph_cache_socios_empresas = {}
+                            st.session_state.graph_cache_contatos_empresas = {}
+                            st.session_state.multi_expanded_companies = {}
+                            st.session_state.multi_expanded_socios = {}
+                            st.session_state.multi_expanded_phones = {}
+                            st.session_state.multi_expanded_emails = {}
+                            st.session_state.graph_expand_socios = False
+                            st.session_state.graph_expand_contacts = False
+                            st.toast("🧹 Grafo reiniciado para a empresa raiz.")
+                            st.rerun()
 
                 # Seletor Pontual de Expansão / Exclusão de Entidades
                 opcoes_nos = {
@@ -905,8 +919,6 @@ elif st.session_state.view == 'DETAILS':
                                 st.session_state.graph_excluded_nodes.add(sel_node_id)
                                 st.toast("✕ Entidade removida do grafo.")
                                 st.rerun()
-
-                components.html(html_code, height=870, scrolling=False)
 
                 st.divider()
 

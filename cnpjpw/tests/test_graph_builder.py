@@ -166,18 +166,17 @@ class TestGraphBuilder(unittest.TestCase):
         self.assertEqual(len(available), 0)
 
     def test_expand_node_html_elements(self):
-        """Verifica se os botões de ação (+ e X) e o root_cnpj são injetados no HTML standalone."""
+        """Verifica se os botões de ação (+ e X) e o root_cnpj são injetados sem manipulação DOM legada."""
         html_code, available = build_graph_html(root_data=self.sample_company)
         self.assertIn('var rootCnpj = "12345678000190";', html_code)
         self.assertIn('node-actions-menu', html_code)
         self.assertIn('btn-node-expand', html_code)
         self.assertIn('btn-node-delete', html_code)
         self.assertIn('data-target-node', html_code)
-        self.assertIn('Graph Bridge Receiver', html_code)
         self.assertIn('triggerExpand(nodeId)', html_code)
         self.assertIn('triggerDelete(nodeId)', html_code)
-        self.assertIn("searchParams.set('cnpj', rootCnpj)", html_code)
-        self.assertIn("searchParams.set('expand_type', nType)", html_code)
+        self.assertNotIn('Graph Bridge Receiver', html_code)
+        self.assertNotIn("searchParams.set('expand_type'", html_code)
 
     def test_api_client_resilient_fallback(self):
         """Valida que o api_client opera com fallback automático e não falha silenciosamente."""
