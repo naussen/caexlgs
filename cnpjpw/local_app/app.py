@@ -711,12 +711,18 @@ elif st.session_state.view == 'DETAILS':
                 for comp_list in st.session_state.multi_expanded_emails.values():
                     all_cluster_companies.extend(comp_list)
 
-                # Execução dos Motores de Inteligência
-                risk_info = risk_analyzer.analyze_company_risk(dados)
-                shared_addresses = risk_analyzer.detect_shared_addresses(all_cluster_companies)
-                family_relationships = risk_analyzer.detect_family_relationships(dados.get('socios', []))
-                ubo_result = risk_analyzer.trace_ultimate_beneficial_owners(cnpj, dados, api_client)
+                # Execução dos Motores de Inteligência (com cache por CNPJ para alta performance)
+                if st.session_state.get('last_analyzed_cnpj') != cnpj:
+                    st.session_state.cached_risk_info = risk_analyzer.analyze_company_risk(dados)
+                    st.session_state.cached_family_rel = risk_analyzer.detect_family_relationships(dados.get('socios', []))
+                    st.session_state.cached_ubo_result = risk_analyzer.trace_ultimate_beneficial_owners(cnpj, dados, api_client)
+                    st.session_state.last_analyzed_cnpj = cnpj
+
+                risk_info = st.session_state.cached_risk_info
+                family_relationships = st.session_state.cached_family_rel
+                ubo_result = st.session_state.cached_ubo_result
                 ubos = ubo_result.get('ubos', [])
+                shared_addresses = risk_analyzer.detect_shared_addresses(all_cluster_companies)
 
                 # Painel Resumo de Inteligência & Compliance
                 m1, m2, m3, m4 = st.columns(4)
@@ -740,88 +746,51 @@ elif st.session_state.view == 'DETAILS':
                 merged_contatos.update(st.session_state.multi_expanded_phones)
                 merged_contatos.update(st.session_state.multi_expanded_emails)
 
-                # Renderização do Grafo Interativo com Custom Component (Todos os botões integrados na janela)
-                nos_atuais = []
-                try:
-                    graph_event, nos_atuais = graph_builder.render_interactive_graph(
-                        root_data=dados,
-                        socios_empresas=merged_socios,
-                        contatos_empresas=merged_contatos,
-                        shared_addresses=shared_addresses,
-                        family_relationships=family_relationships,
-                        ubos=ubos,
-                        enable_risk_highlight=True,
-                        excluded_nodes=st.session_state.graph_excluded_nodes,
-                        auto_filter_accountants=False,
-                        manual_nodes=st.session_state.graph_manual_nodes,
-                        manual_edges=st.session_state.graph_manual_edges,
-                        height=850,
-                        extra_companies=st.session_state.multi_expanded_companies,
-                        key=f"interactive_net_{cnpj}"
-                    )
-                except Exception as comp_err:
-                    # Fallback com HTML padrão caso o componente dê erro
-                    html_code, nos_atuais = graph_builder.build_graph_html(
-                        root_data=dados,
-                        socios_empresas=merged_socios,
-                        contatos_empresas=merged_contatos,
-                        shared_addresses=shared_addresses,
-                        family_relationships=family_relationships,
-                        ubos=ubos,
-                        enable_risk_highlight=True,
-                        excluded_nodes=st.session_state.graph_excluded_nodes,
-                        auto_filter_accountants=False,
-                        manual_nodes=st.session_state.graph_manual_nodes,
-                        manual_edges=st.session_state.graph_manual_edges,
-                        height="850px",
-                        extra_companies=st.session_state.multi_expanded_companies
-                    )
-                    components.html(html_code, height=870, scrolling=False)
-                    graph_event = None
+                # Barra rápida de controles de expansão da rede
+                c_btn_exp1, c_btn_exp2, c_btn_exp3 = st.columns([1.5, 1.5, 2])
+                with c_btn_exp1:
+                    lbl_soc = "👥 Ocultar Sócios (2º Grau)" if st.session_state.get('graph_expand_socios') else "👥 Expandir Sócios (2º Grau)"
+                    if st.button(lbl_soc, key="btn_toggle_expand_socios", use_container_width=True):
+                        st.session_state.graph_expand_socios = not st.session_state.get('graph_expand_socios', False)
+                        st.rerun()
+                with c_btn_exp2:
+                    lbl_cont = "📞 Ocultar Contatos" if st.session_state.get('graph_expand_contacts') else "📞 Expandir Contatos"
+                    if st.button(lbl_cont, key="btn_toggle_expand_contacts", use_container_width=True):
+                        st.session_state.graph_expand_contacts = not st.session_state.get('graph_expand_contacts', False)
+                        st.rerun()
+                with c_btn_exp3:
+                    if st.button("🧹 Limpar Relações Expandidas", key="btn_clear_graph_exp", use_container_width=True):
+                        st.session_state.graph_excluded_nodes = set()
+                        st.session_state.graph_manual_nodes = []
+                        st.session_state.graph_manual_edges = []
+                        st.session_state.graph_cache_socios_empresas = {}
+                        st.session_state.graph_cache_contatos_empresas = {}
+                        st.session_state.multi_expanded_companies = {}
+                        st.session_state.multi_expanded_socios = {}
+                        st.session_state.multi_expanded_phones = {}
+                        st.session_state.multi_expanded_emails = {}
+                        st.session_state.graph_expand_socios = False
+                        st.session_state.graph_expand_contacts = False
+                        st.toast("🧹 Grafo reiniciado para a empresa raiz.")
+                        st.rerun()
 
-                # Processa eventos originados de ações dentro da janela do grafo
-                if graph_event and isinstance(graph_event, dict):
-                    nonce = graph_event.get("nonce")
-                    if nonce and nonce != st.session_state.get("last_graph_action_nonce"):
-                        st.session_state.last_graph_action_nonce = nonce
-                        act = graph_event.get("action")
-                        if act == "expand":
-                            executar_expansao_entidade(
-                                graph_event.get("type"),
-                                graph_event.get("val"),
-                                graph_event.get("label", "")
-                            )
-                            st.rerun()
-                        elif act == "delete":
-                            node_id = graph_event.get("id")
-                            if node_id:
-                                st.session_state.graph_excluded_nodes.add(node_id)
-                                st.toast("🗑️ Nó removido do grafo.")
-                                st.rerun()
-                        elif act == "toggle_feature":
-                            feat = graph_event.get("feature")
-                            if feat == "expand_socios":
-                                st.session_state.graph_expand_socios = not st.session_state.get('graph_expand_socios', False)
-                                st.toast("👥 Expansão de Sócios (2º Grau) " + ("ativada!" if st.session_state.graph_expand_socios else "desativada."))
-                                st.rerun()
-                            elif feat == "expand_contacts":
-                                st.session_state.graph_expand_contacts = not st.session_state.get('graph_expand_contacts', False)
-                                st.toast("📞 Expansão de Contatos " + ("ativada!" if st.session_state.graph_expand_contacts else "desativada."))
-                                st.rerun()
-                        elif act == "clear":
-                            st.session_state.graph_excluded_nodes = set()
-                            st.session_state.graph_manual_nodes = []
-                            st.session_state.graph_manual_edges = []
-                            st.session_state.graph_cache_socios_empresas = {}
-                            st.session_state.graph_cache_contatos_empresas = {}
-                            st.session_state.multi_expanded_companies = {}
-                            st.session_state.multi_expanded_socios = {}
-                            st.session_state.multi_expanded_phones = {}
-                            st.session_state.multi_expanded_emails = {}
-                            st.session_state.graph_expand_socios = False
-                            st.session_state.graph_expand_contacts = False
-                            st.toast("🧹 Grafos e conexões limpos.")
-                            st.rerun()
+                # Renderização direta, instantânea e 100% resiliente via Vis.js HTML standalone
+                html_code, nos_atuais = graph_builder.build_graph_html(
+                    root_data=dados,
+                    socios_empresas=merged_socios,
+                    contatos_empresas=merged_contatos,
+                    shared_addresses=shared_addresses,
+                    family_relationships=family_relationships,
+                    ubos=ubos,
+                    enable_risk_highlight=True,
+                    excluded_nodes=st.session_state.graph_excluded_nodes,
+                    auto_filter_accountants=False,
+                    manual_nodes=st.session_state.graph_manual_nodes,
+                    manual_edges=st.session_state.graph_manual_edges,
+                    height="850px",
+                    extra_companies=st.session_state.multi_expanded_companies
+                )
+                components.html(html_code, height=870, scrolling=False)
 
                 st.divider()
 
@@ -847,41 +816,47 @@ elif st.session_state.view == 'DETAILS':
 
                     c_rep1, c_rep2 = st.columns(2)
                     with c_rep1:
-                        pdf_data = report_generator.generate_pdf_dossier(
-                            root_data=dados,
-                            all_companies=all_cluster_companies,
-                            socios_list=dados.get('socios', []),
-                            risk_info=risk_info,
-                            shared_addresses=shared_addresses,
-                            ubos=ubos,
-                            notes=st.session_state.investigation_notes
-                        )
-                        st.download_button(
-                            "📑 Baixar Dossiê Completo (PDF)",
-                            data=pdf_data,
-                            file_name=f"dossie_investigativo_{cnpj}.pdf",
-                            mime="application/pdf",
-                            use_container_width=True
-                        )
+                        if st.button("📑 Compilar Dossiê Completo (PDF)", key="btn_compile_pdf", use_container_width=True):
+                            with st.spinner("Gerando Dossiê em PDF..."):
+                                st.session_state[f"pdf_{cnpj}"] = report_generator.generate_pdf_dossier(
+                                    root_data=dados,
+                                    all_companies=all_cluster_companies,
+                                    socios_list=dados.get('socios', []),
+                                    risk_info=risk_info,
+                                    shared_addresses=shared_addresses,
+                                    ubos=ubos,
+                                    notes=st.session_state.investigation_notes
+                                )
+                        if st.session_state.get(f"pdf_{cnpj}"):
+                            st.download_button(
+                                "📥 Baixar Dossiê Completo (PDF)",
+                                data=st.session_state[f"pdf_{cnpj}"],
+                                file_name=f"dossie_investigativo_{cnpj}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
                     with c_rep2:
-                        excel_data = report_generator.generate_excel_dossier(
-                            root_data=dados,
-                            all_companies=all_cluster_companies,
-                            socios_list=dados.get('socios', []),
-                            risk_info=risk_info,
-                            shared_addresses=shared_addresses,
-                            ubos=ubos,
-                            manual_nodes=st.session_state.graph_manual_nodes,
-                            manual_edges=st.session_state.graph_manual_edges,
-                            notes=st.session_state.investigation_notes
-                        )
-                        st.download_button(
-                            "📊 Baixar Planilha Consolidada (Excel)",
-                            data=excel_data,
-                            file_name=f"relatorio_societario_{cnpj}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            use_container_width=True
-                        )
+                        if st.button("📊 Compilar Planilha Consolidada (Excel)", key="btn_compile_excel", use_container_width=True):
+                            with st.spinner("Gerando Planilha Excel..."):
+                                st.session_state[f"excel_{cnpj}"] = report_generator.generate_excel_dossier(
+                                    root_data=dados,
+                                    all_companies=all_cluster_companies,
+                                    socios_list=dados.get('socios', []),
+                                    risk_info=risk_info,
+                                    shared_addresses=shared_addresses,
+                                    ubos=ubos,
+                                    manual_nodes=st.session_state.graph_manual_nodes,
+                                    manual_edges=st.session_state.graph_manual_edges,
+                                    notes=st.session_state.investigation_notes
+                                )
+                        if st.session_state.get(f"excel_{cnpj}"):
+                            st.download_button(
+                                "📥 Baixar Planilha Consolidada (Excel)",
+                                data=st.session_state[f"excel_{cnpj}"],
+                                file_name=f"relatorio_societario_{cnpj}.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                use_container_width=True
+                            )
 
                 with tab_case:
                     st.write("#### 💾 Salvar e Carregar Projeto de Investigação (.json)")

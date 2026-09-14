@@ -80,6 +80,9 @@ def build_graph_elements(
     Processa todos os dados e constrói as listas de nós e arestas para a rede.
     Retorna (nodes_list, edges_list, available_nodes).
     """
+    if not root_data:
+        return [], [], []
+
     if excluded_nodes is None:
         excluded_nodes = set()
     if socios_empresas is None:
@@ -676,89 +679,219 @@ def build_graph_html(
         judicial_edges=judicial_edges
     )
 
+    if not nodes_list:
+        return (
+            f'<div style="display:flex;align-items:center;justify-content:center;height:{height};background:#f8f9fa;border:1px dashed #cfd8dc;border-radius:8px;color:#78909c;font-family:sans-serif;">'
+            '<p>ℹ️ Nenhum dado cadastral disponível para gerar o grafo de rede.</p>'
+            '</div>',
+            []
+        )
+
     nodes_json = json.dumps(nodes_list, ensure_ascii=False)
     edges_json = json.dumps(edges_list, ensure_ascii=False)
+
+    num_nos = len(nodes_list)
+    num_arestas = len(edges_list)
 
     html_template = f"""
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="utf-8">
-      <script type="text/javascript" src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+      <title>POMELO Network Graph</title>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/standalone/umd/vis-network.min.js"></script>
+      <script>
+        if (typeof vis === 'undefined') {{
+          document.write('<script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"><\\/script>');
+        }}
+      </script>
       <style>
+        * {{ box-sizing: border-box; }}
         body, html {{
           margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
-          font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8f9fa;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+          background-color: #f8f9fa;
         }}
-        #network-wrapper {{ position: relative; width: 100%; height: calc(100% - 44px); }}
-        #network-container {{ width: 100%; height: 100%; border: 1px solid #e0e0e0; border-radius: 8px; background-color: #ffffff; }}
-        #toolbar {{ height: 40px; padding: 2px 10px; display: flex; align-items: center; gap: 8px; background: #ffffff; border-bottom: 1px solid #e0e0e0; font-size: 12px; color: #424242; overflow-x: auto; white-space: nowrap; }}
-        .btn {{ padding: 4px 10px; border: 1px solid #cfd8dc; border-radius: 4px; background-color: #ffffff; cursor: pointer; font-size: 11px; font-weight: 500; }}
-        .btn:hover {{ background-color: #eceff1; }}
-        .btn-danger {{ color: #c62828; border-color: #ef9a9a; }}
-        .legend-item {{ display: flex; align-items: center; gap: 4px; margin-left: 4px; font-size: 11px; }}
-        .dot {{ width: 10px; height: 10px; border-radius: 50%; display: inline-block; }}
+        #root-graph {{
+          display: flex; flex-direction: column; width: 100%; height: 100%;
+          border: 1px solid #cfd8dc; border-radius: 8px; background: #ffffff; overflow: hidden;
+        }}
+        #toolbar {{
+          background: #ffffff; border-bottom: 1px solid #e0e0e0; padding: 6px 12px;
+          display: flex; align-items: center; gap: 8px; flex-wrap: wrap; z-index: 10;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.05); font-size: 12px; color: #37474f;
+        }}
+        .btn {{
+          padding: 4px 10px; border: 1px solid #cfd8dc; border-radius: 6px;
+          background-color: #ffffff; color: #37474f; cursor: pointer;
+          font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;
+          transition: all 0.15s ease; user-select: none;
+        }}
+        .btn:hover {{ background-color: #eceff1; border-color: #b0bec5; }}
+        .btn-active {{ background-color: #e8f5e9; border-color: #a5d6a7; color: #1b5e20; font-weight: 600; }}
+        .toolbar-divider {{ height: 18px; width: 1px; background-color: #cfd8dc; margin: 0 2px; }}
+        .legend-bar {{ display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; font-size: 11px; color: #546e7a; }}
+        .legend-item {{ display: inline-flex; align-items: center; gap: 4px; }}
+        .dot {{ width: 9px; height: 9px; border-radius: 50%; display: inline-block; }}
+        .status-pill {{ font-size: 11px; font-weight: 600; color: #1565c0; background: #e3f2fd; padding: 2px 8px; border-radius: 12px; }}
+        #network-wrapper {{ position: relative; flex: 1; width: 100%; height: calc(100% - 42px); }}
+        #network-container {{ width: 100%; height: 100%; }}
+        #quick-hint {{
+          position: absolute; bottom: 8px; left: 10px; background: rgba(255,255,255,0.92);
+          padding: 3px 8px; border-radius: 4px; font-size: 11px; color: #607d8b; border: 1px solid #e0e0e0;
+          pointer-events: none; z-index: 5;
+        }}
       </style>
     </head>
     <body>
-      <div id="toolbar">
-        <button class="btn" onclick="network.fit({{animation: true}})">🔍 Centralizar</button>
-        <button class="btn" id="physics-toggle" onclick="togglePhysics()">⏸️ Pausar Física</button>
-        <button class="btn btn-danger" onclick="clearGraph()">🧹 Limpar Grafos</button>
-        <button class="btn" onclick="exportImage()">📸 Exportar PNG</button>
-        <span style="border-left: 1px solid #cfd8dc; height: 18px; margin: 0 2px;"></span>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_ROOT};"></span> Raiz</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_LINK};"></span> Empresa</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_RISK};"></span> ⚠️ Irregular</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_SOCIO};"></span> Sócio</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_UBO};"></span> 👑 UBO</div>
-        <div class="legend-item"><span class="dot" style="background-color: {COLOR_CONTADOR};"></span> 🧮 Contador</div>
-      </div>
-      <div id="network-wrapper">
-        <div id="network-container"></div>
+      <div id="root-graph">
+        <div id="toolbar">
+          <button class="btn" onclick="autoCenter(50)" title="Centralizar e ajustar a escala da visualização">🔍 Centralizar</button>
+          <button class="btn" id="btn-physics" onclick="togglePhysics()" title="Pausar ou reativar movimentação física">⏸️ Pausar Física</button>
+          <button class="btn" id="btn-contadores" onclick="toggleAccountants()" title="Ocultar ou exibir nós de contabilidade">🧮 Ocultar Contadores</button>
+          <button class="btn" onclick="toggleFullScreen()" title="Alternar modo tela cheia">⛶ Tela Cheia</button>
+          <button class="btn" onclick="exportImage()" title="Salvar imagem PNG da rede">📸 Salvar PNG</button>
+          <span class="status-pill">📊 {num_nos} entidades | {num_arestas} conexões</span>
+
+          <div class="toolbar-divider"></div>
+
+          <div class="legend-bar">
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_ROOT};"></span> Raiz</div>
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_LINK};"></span> Empresa</div>
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMPRESA_RISK};"></span> ⚠️ Irregular</div>
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_SOCIO};"></span> Sócio</div>
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_UBO};"></span> 👑 UBO</div>
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_CONTADOR}; border: 1px solid {COLOR_CONTADOR_BORDER};"></span> 🧮 Contador</div>
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_EMAIL};"></span> E-mail</div>
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_TELEFONE};"></span> Telefone</div>
+            <div class="legend-item"><span class="dot" style="background-color: {COLOR_ENDERECO};"></span> 📍 Endereço</div>
+          </div>
+        </div>
+
+        <div id="network-wrapper">
+          <div id="network-container"></div>
+          <div id="quick-hint">💡 Arraste os nós para organizar livremente (eles permanecem onde você soltar). Dê scroll para zoom.</div>
+        </div>
       </div>
 
       <script type="text/javascript">
-        var nodes = new vis.DataSet({nodes_json});
-        var edges = new vis.DataSet({edges_json});
+        var nodesData = {nodes_json};
+        var edgesData = {edges_json};
+
+        var nodes = new vis.DataSet(nodesData);
+        var edges = new vis.DataSet(edgesData);
         var container = document.getElementById('network-container');
 
         var options = {{
-          nodes: {{ font: {{ size: 12, face: 'Roboto, Segoe UI, sans-serif' }}, borderWidth: 2, shadow: true }},
-          edges: {{ smooth: {{ type: 'continuous', roundness: 0.25 }}, shadow: false }},
+          nodes: {{
+            font: {{ size: 12, face: 'Roboto, Segoe UI, sans-serif', color: '#263238' }},
+            borderWidth: 2,
+            shadow: true
+          }},
+          edges: {{
+            smooth: {{ type: 'continuous', roundness: 0.25 }},
+            shadow: false,
+            color: {{ color: '#90A4AE', highlight: '#0D47A1' }}
+          }},
           physics: {{
             enabled: true,
-            forceAtlas2Based: {{ gravitationalConstant: -60, centralGravity: 0.01, springLength: 130, springConstant: 0.06, damping: 0.45 }},
-            solver: 'forceAtlas2Based',
-            stabilization: {{ iterations: 120 }}
+            barnesHut: {{
+              gravitationalConstant: -1800,
+              centralGravity: 0.25,
+              springLength: 95,
+              springConstant: 0.04,
+              damping: 0.25,
+              avoidOverlap: 0.2
+            }},
+            solver: 'barnesHut',
+            stabilization: {{
+              enabled: true,
+              iterations: 60,
+              updateInterval: 15,
+              fit: true
+            }}
           }},
-          interaction: {{ hover: true, tooltipDelay: 150, zoomView: true, dragNodes: true, navigationButtons: true }}
+          interaction: {{
+            hover: true,
+            tooltipDelay: 100,
+            zoomView: true,
+            dragNodes: true,
+            dragView: true,
+            navigationButtons: true,
+            keyboard: false
+          }}
         }};
 
-        var network = new vis.Network(container, {{nodes: nodes, edges: edges}}, options);
-        var physicsEnabled = true;
+        var network = new vis.Network(container, {{ nodes: nodes, edges: edges }}, options);
+        var physicsActive = true;
+        var accountantsHidden = false;
 
+        // Estabilização inicial com auto-enquadramento e congelamento suave para 0% de CPU
         network.once('stabilizationIterationsDone', function() {{
-          setTimeout(function() {{ network.fit({{animation: {{duration: 700}}}}); }}, 100);
+          network.fit({{ animation: {{ duration: 400, easingFunction: 'easeInOutQuad' }} }});
+          setTimeout(function() {{
+            network.setOptions({{ physics: {{ enabled: false }} }});
+            physicsActive = false;
+            var pBtn = document.getElementById('btn-physics');
+            if (pBtn) pBtn.innerHTML = '▶️ Ativar Física';
+          }}, 600);
         }});
 
+        // Movimentação livre: fixa permanentemente a coordenada onde o usuário soltar o nó
         network.on('dragEnd', function(params) {{
           if (params.nodes && params.nodes.length > 0) {{
             params.nodes.forEach(function(nodeId) {{
               var pos = network.getPosition(nodeId);
-              nodes.update({{ id: nodeId, x: pos.x, y: pos.y, fixed: {{x: true, y: true}}, physics: false }});
+              nodes.update({{ id: nodeId, x: pos.x, y: pos.y, fixed: {{ x: true, y: true }}, physics: false }});
             }});
           }}
         }});
 
-        function togglePhysics() {{
-          physicsEnabled = !physicsEnabled;
-          network.setOptions({{ physics: {{ enabled: physicsEnabled }} }});
-          document.getElementById('physics-toggle').innerHTML = physicsEnabled ? '⏸️ Pausar Física' : '▶️ Ativar Física';
+        function autoCenter(delay) {{
+          setTimeout(function() {{
+            if (network) {{
+              network.fit({{ animation: {{ duration: 500, easingFunction: 'easeInOutQuad' }} }});
+            }}
+          }}, delay || 50);
         }}
 
-        function clearGraph() {{
-          if (confirm("Limpar nós do grafo?")) {{ nodes.clear(); edges.clear(); }}
+        function togglePhysics() {{
+          physicsActive = !physicsActive;
+          network.setOptions({{ physics: {{ enabled: physicsActive }} }});
+          var btn = document.getElementById('btn-physics');
+          if (btn) {{
+            btn.innerHTML = physicsActive ? '⏸️ Pausar Física' : '▶️ Ativar Física';
+            btn.classList.toggle('btn-active', physicsActive);
+          }}
+        }}
+
+        function toggleAccountants() {{
+          accountantsHidden = !accountantsHidden;
+          var btn = document.getElementById('btn-contadores');
+          if (btn) {{
+            btn.innerHTML = accountantsHidden ? '🧮 Exibir Contadores' : '🧮 Ocultar Contadores';
+            btn.classList.toggle('btn-active', accountantsHidden);
+          }}
+          var updates = [];
+          nodes.forEach(function(n) {{
+            if (n._is_accountant || n.node_type === 'CONTADOR') {{
+              updates.push({{ id: n.id, hidden: accountantsHidden }});
+            }}
+          }});
+          nodes.update(updates);
+          autoCenter(100);
+        }}
+
+        function toggleFullScreen() {{
+          var elem = document.getElementById('root-graph');
+          if (!document.fullscreenElement && !document.webkitFullscreenElement) {{
+            if (elem.requestFullscreen) elem.requestFullscreen();
+            else if (elem.webkitRequestFullscreen) elem.webkitRequestFullscreen();
+          }} else {{
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+          }}
+          autoCenter(200);
         }}
 
         function exportImage() {{
@@ -767,11 +900,11 @@ def build_graph_html(
             var canvas = container.getElementsByTagName('canvas')[0];
             if (canvas) {{
               var link = document.createElement('a');
-              link.download = 'grafo_relacionamentos.png';
+              link.download = 'grafo_relacionamentos_pomelo.png';
               link.href = canvas.toDataURL('image/png');
               link.click();
             }}
-          }}, 300);
+          }}, 250);
         }}
       </script>
     </body>
