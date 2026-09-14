@@ -15,6 +15,7 @@ Funcionalidades:
 """
 import os
 import json
+import re
 from typing import Tuple, List, Dict, Set, Optional, Any
 import streamlit.components.v1 as components
 
@@ -42,22 +43,75 @@ COLOR_EDGE_MANUAL = "#D50000"    # Vermelho Neon
 COLOR_EDGE_FAMILY = "#8E24AA"    # Púrpura (Parentesco)
 COLOR_EDGE_ENDERECO = "#00ACC1"  # Ciano suave (Endereço)
 
-TERMOS_CONTABILIDADE = [
-    "contab", "contabil", "contabilidade", "assessoria", "consultoria",
-    "fiscal@", "dp@", "escritorio", "cont@be", "contar", "auditoria", "contador"
+# CNAEs específicos de contabilidade e perícia contábil (Divisão 69.20)
+CNAES_CONTABILIDADE = {"6920601", "6920602", "69206"}
+
+# Termos inequívocos de contabilidade (palavras inteiras ou prefixos estritamente contábeis)
+TERMOS_CONTABILIDADE_EXATOS = [
+    r"\bcont[aá]b\w*",                                  # contábil, contabilidade, contabilista, contabeis, etc.
+    r"\bcontador\w*",                                  # contador, contadora, contadores, contadoras
+    r"\bper[ií]c(?:ia|ias)\s+cont[aá]b\w*",             # perícia contábil
+    r"\bperit[oa]s?\s+cont[aá]b\w*",                   # perito contábil
+    r"\bauditoria\s+(?:cont[aá]b\w*|fiscal|tribut[aá]ri\w*)", # auditoria contábil/fiscal/tributária
+    r"\bassessoria\s+(?:cont[aá]b\w*|fiscal|tribut[aá]ri\w*)", # assessoria contábil/fiscal
+    r"\bconsultoria\s+(?:cont[aá]b\w*|fiscal|tribut[aá]ri\w*)", # consultoria contábil/fiscal
+    r"\bescrit[oó]rio\s+(?:cont[aá]b\w*|de\s+contabilidade)", # escritório contábil
+    r"\bservi[cç]os?\s+(?:cont[aá]b\w*|de\s+contabilidade)",  # serviços contábeis
+    r"\bcontabilidade\b",
 ]
 
-CNAES_CONTABILIDADE = ["6920601", "6920602", "6920-6/01", "6920-6/02"]
+# E-mails corporativos contábeis
+EMAILS_CONTABILIDADE = [
+    r"@.*contab",
+    r"contabil(?:idade)?@",
+    r"fiscal@.*contab",
+]
+
+# Termos que desqualificam categoricamente como contador (falsos positivos comuns como esportes, advocacia, medicina, marketing, etc.)
+TERMOS_DESCLASSIFICADORES = [
+    r"\bsport\w*", r"\besport\w*", r"\batlet\w*", r"\bfutebol\b", r"\bfitness\b", r"\bgym\b",
+    r"\badvoc\w*", r"\badvogad\w*", r"\bjur[ií]dic\w*", r"\boab\b",
+    r"\bm[eé]dic\w*", r"\bsa[uú]de\b", r"\bhospital\w*", r"\bcl[ií]nic\w*", r"\bodonto\w*", r"\bfarm[aá]c\w*",
+    r"\bimobili[aá]r\w*", r"\bcorretor\w*", r"\bim[oó]ve\w*",
+    r"\bviagen\w*", r"\bturism\w*", r"\bhotel\w*", r"\bpousada\w*",
+    r"\bimprensa\b", r"\bcomunica[cç][aã]o\b", r"\bmarketing\b", r"\bpublicidade\b", r"\bpropaganda\b",
+    r"\bseguran[cç]a\b", r"\bvigil[aâ]ncia\b", r"\blimpeza\b",
+    r"\btransporte\w*", r"\blog[ií]stic\w*", r"\bfrete\w*",
+    r"\bengenh\w*", r"\barquitet\w*", r"\bconstru[cç][aã]o\b", r"\bobras\b",
+    r"\btecnologia\b", r"\bsoftware\b", r"\bsistemas\b", r"\binform[aá]tic\w*",
+    r"\brestaurante\w*", r"\bbar\b", r"\blanchonete\w*", r"\baliment\w*",
+    r"\bcom[eé]rcio\s+varejista\b", r"\bve[ií]culos\b", r"\bauto\b", r"\boficina\b"
+]
 
 def is_probable_accountant(label: str = "", title: str = "", cnae: str = "") -> bool:
-    """Verifica se o nó possui termos ou CNAE característicos de escritório de contabilidade / contador."""
+    """
+    Verifica se a entidade é com alta probabilidade um contador ou escritório de contabilidade.
+    Elimina falsos positivos filtrando setores não relacionados e exigindo correlação estrita.
+    """
     content = f"{label} {title}".lower()
-    for termo in TERMOS_CONTABILIDADE:
-        if termo in content:
-            return True
-    cnae_clean = str(cnae or "").replace(".", "").replace("-", "").replace("/", "").strip()
-    if cnae_clean in ("6920601", "6920602"):
+
+    # 1. Validação estrita por CNAE oficial (6920-6/01 ou 6920-6/02)
+    cnae_clean = re.sub(r"[^\d]", "", str(cnae or "").strip())
+    if cnae_clean in CNAES_CONTABILIDADE or any(cnae_clean.startswith(c) for c in ("6920601", "6920602")):
         return True
+
+    # 2. Se possuir termo desclassificador explícito (ex: 'sports', 'médica', 'advocacia'),
+    # somente será contador se houver menção inequívoca a contabilidade/contador
+    tem_desclassificador = any(re.search(pat, content, re.IGNORECASE) for pat in TERMOS_DESCLASSIFICADORES)
+    if tem_desclassificador:
+        if not re.search(r"\b(?:contabilidade|contador|contadora|contadores)\b", content, re.IGNORECASE):
+            return False
+
+    # 3. Validação por termos de contabilidade com regex
+    for pat in TERMOS_CONTABILIDADE_EXATOS:
+        if re.search(pat, content, re.IGNORECASE):
+            return True
+
+    # 4. Validação por emails contábeis
+    for pat in EMAILS_CONTABILIDADE:
+        if re.search(pat, content, re.IGNORECASE):
+            return True
+
     return False
 
 def build_graph_elements(
@@ -74,7 +128,9 @@ def build_graph_elements(
     manual_edges: list = None,
     extra_companies: dict = None,
     judicial_nodes: list = None,
-    judicial_edges: list = None
+    judicial_edges: list = None,
+    false_positive_accountants: set = None,
+    manual_accountants: set = None
 ) -> Tuple[List[Dict], List[Dict], List[Dict]]:
     """
     Processa todos os dados e constrói as listas de nós e arestas para a rede.
@@ -85,6 +141,10 @@ def build_graph_elements(
 
     if excluded_nodes is None:
         excluded_nodes = set()
+    if false_positive_accountants is None:
+        false_positive_accountants = set()
+    if manual_accountants is None:
+        manual_accountants = set()
     if socios_empresas is None:
         socios_empresas = {}
     if contatos_empresas is None:
@@ -121,8 +181,14 @@ def build_graph_elements(
         if node_id in excluded_nodes:
             return False
 
-        # Verificação e Sinalização de CONTADOR (Requisito 4)
-        is_acct = is_probable_accountant(label, title, cnae)
+        # Verificação e Sinalização de CONTADOR (com tratamento explícito de falso positivo pelo analista)
+        if false_positive_accountants and (node_id in false_positive_accountants or raw_val in false_positive_accountants):
+            is_acct = False
+        elif manual_accountants and (node_id in manual_accountants or raw_val in manual_accountants):
+            is_acct = True
+        else:
+            is_acct = is_probable_accountant(label, title, cnae)
+
         if auto_filter_accountants and is_acct:
             return False
 
@@ -587,7 +653,14 @@ def build_graph_elements(
 
     nodes_list = list(nodes_dict.values())
     available_nodes = [
-        {"id": n["id"], "label": n["_raw_label"], "type": n["_type"], "val": n.get("_raw_val", n["id"])}
+        {
+            "id": n["id"],
+            "label": n["_raw_label"],
+            "display_label": n.get("label", n["_raw_label"]),
+            "type": n["_type"],
+            "val": n.get("_raw_val", n["id"]),
+            "is_accountant": n.get("_is_accountant", False)
+        }
         for n in nodes_list
     ]
     return nodes_list, edges_list, available_nodes
@@ -657,7 +730,9 @@ def build_graph_html(
     height: str = "850px",
     extra_companies: dict = None,
     judicial_nodes: list = None,
-    judicial_edges: list = None
+    judicial_edges: list = None,
+    false_positive_accountants: set = None,
+    manual_accountants: set = None
 ) -> Tuple[str, List[Dict]]:
     """
     Retorna HTML independente com Vis.js interativo (usado para exportação e fallback).
@@ -676,7 +751,9 @@ def build_graph_html(
         manual_edges=manual_edges,
         extra_companies=extra_companies,
         judicial_nodes=judicial_nodes,
-        judicial_edges=judicial_edges
+        judicial_edges=judicial_edges,
+        false_positive_accountants=false_positive_accountants,
+        manual_accountants=manual_accountants
     )
 
     if not nodes_list:

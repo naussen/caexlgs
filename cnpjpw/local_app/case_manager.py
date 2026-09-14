@@ -18,7 +18,9 @@ def export_case_json(
     manual_edges: list,
     excluded_nodes: set,
     investigation_notes: str = "",
-    active_options: dict = None
+    active_options: dict = None,
+    accountant_false_positives: set = None,
+    accountant_manual_nodes: set = None
 ) -> str:
     """
     Serializa o dossiê de investigação em uma string JSON formatada.
@@ -38,7 +40,9 @@ def export_case_json(
             "notes": investigation_notes or "",
             "manual_nodes": manual_nodes or [],
             "manual_edges": manual_edges or [],
-            "excluded_nodes": list(excluded_nodes or [])
+            "excluded_nodes": list(excluded_nodes or []),
+            "accountant_false_positives": list(accountant_false_positives or []),
+            "accountant_manual_nodes": list(accountant_manual_nodes or [])
         },
         "options": active_options
     }
@@ -69,5 +73,7 @@ def import_case_json(json_str: str) -> dict:
         "manual_nodes": investigation.get("manual_nodes", []),
         "manual_edges": investigation.get("manual_edges", []),
         "excluded_nodes": set(investigation.get("excluded_nodes", [])),
+        "accountant_false_positives": set(investigation.get("accountant_false_positives", [])),
+        "accountant_manual_nodes": set(investigation.get("accountant_manual_nodes", [])),
         "options": data.get("options", {})
     }

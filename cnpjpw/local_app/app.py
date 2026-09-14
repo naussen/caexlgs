@@ -68,6 +68,10 @@ if 'graph_manual_edges' not in st.session_state:
     st.session_state.graph_manual_edges = []
 if 'graph_auto_filter_accountants' not in st.session_state:
     st.session_state.graph_auto_filter_accountants = False
+if 'graph_false_positive_accountants' not in st.session_state:
+    st.session_state.graph_false_positive_accountants = set()
+if 'graph_manual_accountants' not in st.session_state:
+    st.session_state.graph_manual_accountants = set()
 if 'graph_expand_socios' not in st.session_state:
     st.session_state.graph_expand_socios = False
 if 'graph_expand_contacts' not in st.session_state:
@@ -761,6 +765,8 @@ elif st.session_state.view == 'DETAILS':
                 with c_btn_exp3:
                     if st.button("🧹 Limpar Relações Expandidas", key="btn_clear_graph_exp", use_container_width=True):
                         st.session_state.graph_excluded_nodes = set()
+                        st.session_state.graph_false_positive_accountants = set()
+                        st.session_state.graph_manual_accountants = set()
                         st.session_state.graph_manual_nodes = []
                         st.session_state.graph_manual_edges = []
                         st.session_state.graph_cache_socios_empresas = {}
@@ -788,17 +794,20 @@ elif st.session_state.view == 'DETAILS':
                     manual_nodes=st.session_state.graph_manual_nodes,
                     manual_edges=st.session_state.graph_manual_edges,
                     height="850px",
-                    extra_companies=st.session_state.multi_expanded_companies
+                    extra_companies=st.session_state.multi_expanded_companies,
+                    false_positive_accountants=st.session_state.graph_false_positive_accountants,
+                    manual_accountants=st.session_state.graph_manual_accountants
                 )
                 components.html(html_code, height=870, scrolling=False)
 
                 st.divider()
 
                 # Painel de Dossiês, Relatórios e Persistência
-                tab_rep, tab_case, tab_timeline, tab_excl, tab_manual = st.tabs([
+                tab_rep, tab_case, tab_timeline, tab_acct, tab_excl, tab_manual = st.tabs([
                     "📑 Dossiê & Relatórios",
                     "💾 Salvar/Carregar Projeto",
                     "⏱️ Linha do Tempo Societária",
+                    "🧮 Contadores & Falsos Positivos",
                     "🚫 Gerenciar Exclusões",
                     "➕ Inserção Manual"
                 ])
@@ -876,7 +885,9 @@ elif st.session_state.view == 'DETAILS':
                                 "auto_filter_accountants": st.session_state.graph_auto_filter_accountants,
                                 "expand_socios": st.session_state.graph_expand_socios,
                                 "expand_contacts": st.session_state.graph_expand_contacts
-                            }
+                            },
+                            accountant_false_positives=st.session_state.graph_false_positive_accountants,
+                            accountant_manual_nodes=st.session_state.graph_manual_accountants
                         )
                         st.download_button(
                             "📥 Baixar Arquivo do Caso (.json)",
@@ -895,6 +906,8 @@ elif st.session_state.view == 'DETAILS':
                                     st.session_state.graph_manual_nodes = loaded.get('manual_nodes', [])
                                     st.session_state.graph_manual_edges = loaded.get('manual_edges', [])
                                     st.session_state.graph_excluded_nodes = loaded.get('excluded_nodes', set())
+                                    st.session_state.graph_false_positive_accountants = loaded.get('accountant_false_positives', set())
+                                    st.session_state.graph_manual_accountants = loaded.get('accountant_manual_nodes', set())
                                     st.session_state.investigation_notes = loaded.get('notes', '')
                                     st.success("Caso carregado com sucesso!")
                                     st.rerun()
@@ -924,6 +937,74 @@ elif st.session_state.view == 'DETAILS':
                         st.dataframe(pd.DataFrame(timeline_records), use_container_width=True, hide_index=True)
                     else:
                         st.info("Nenhum sócio registrado nesta empresa.")
+
+                with tab_acct:
+                    st.write("#### 🧮 Gestão de Contadores & Correção de Falsos Positivos")
+                    st.caption(
+                        "O sistema classifica automaticamente entidades contábeis pelo CNAE 69.20 e termos específicos. "
+                        "Se uma entidade foi sinalizada indevidamente como contador (falso positivo), desmarque-a aqui com 1 clique."
+                    )
+                    
+                    col_ac1, col_ac2 = st.columns([1.6, 1.1])
+                    with col_ac1:
+                        st.markdown("##### 📌 Entidades Atualmente Sinalizadas como Contador (`🧮`)")
+                        contadores_atuais = [n for n in (nos_atuais or []) if n.get("is_accountant")]
+                        if contadores_atuais:
+                            for cnt in contadores_atuais:
+                                c_lbl, c_btn = st.columns([2.8, 1.4])
+                                with c_lbl:
+                                    origem = "Inserção Manual" if cnt.get('id') in st.session_state.graph_manual_accountants else "Detecção Automática"
+                                    st.markdown(f"🧮 **{cnt.get('label')}** ({cnt.get('type')})")
+                                    st.caption(f"ID: `{cnt.get('id')}` • Origem: *{origem}*")
+                                with c_btn:
+                                    if st.button("🛡️ Falso Positivo", key=f"btn_fp_{cnt.get('id')}", help="Remover marcação de contador desta entidade"):
+                                        st.session_state.graph_false_positive_accountants.add(cnt.get('id'))
+                                        st.session_state.graph_manual_accountants.discard(cnt.get('id'))
+                                        st.toast(f"✅ {cnt.get('label')} desmarcado como contador!")
+                                        st.rerun()
+                                st.divider()
+                        else:
+                            st.info("Nenhuma entidade na rede está sinalizada como contador no momento.")
+
+                        st.markdown("##### ➕ Marcar Entidade Manualmente como Contador")
+                        candidatos_contador = {
+                            f"{n['label']} [{n['type']}]": n['id']
+                            for n in (nos_atuais or [])
+                            if not n.get('is_accountant') and not n['id'].startswith('cnpj_' + str(cnpj))
+                        }
+                        if candidatos_contador:
+                            c_sel_acct = st.selectbox(
+                                "Selecione uma entidade para sinalizar como Contador:",
+                                options=list(candidatos_contador.keys()),
+                                key="sel_manual_acct"
+                            )
+                            if st.button("🧮 Sinalizar como Contador", key="btn_add_manual_acct"):
+                                node_id_acct = candidatos_contador[c_sel_acct]
+                                st.session_state.graph_manual_accountants.add(node_id_acct)
+                                st.session_state.graph_false_positive_accountants.discard(node_id_acct)
+                                st.toast("🧮 Entidade sinalizada como contador com sucesso!")
+                                st.rerun()
+
+                    with col_ac2:
+                        st.markdown("##### ↺ Falsos Positivos Desmarcados")
+                        if st.session_state.graph_false_positive_accountants:
+                            st.caption("Entidades com sinalização de contador removida pelo analista:")
+                            for fp_id in list(st.session_state.graph_false_positive_accountants):
+                                c_fp_lbl, c_fp_btn = st.columns([2.5, 1])
+                                node_match = next((n for n in (nos_atuais or []) if n['id'] == fp_id), None)
+                                nome_fp = node_match.get('label') if node_match else fp_id
+                                with c_fp_lbl:
+                                    st.write(f"• **{nome_fp}**")
+                                    st.caption(f"`{fp_id}`")
+                                with c_fp_btn:
+                                    if st.button("↺ Restaurar", key=f"btn_undo_fp_{fp_id}", help="Voltar a considerar como contador"):
+                                        st.session_state.graph_false_positive_accountants.remove(fp_id)
+                                        st.rerun()
+                            if st.button("Limpar Todos os Falsos Positivos", key="btn_clear_all_fps"):
+                                st.session_state.graph_false_positive_accountants = set()
+                                st.rerun()
+                        else:
+                            st.caption("Nenhum falso positivo registrado até agora.")
 
                 with tab_excl:
                     st.write("#### 🚫 Gerenciar Exclusão de Nós (Contadores e Ruídos)")
