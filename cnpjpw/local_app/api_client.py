@@ -28,12 +28,23 @@ def is_bigquery_available() -> bool:
     """Verifica se o SDK do BigQuery e credenciais válidas estão configurados."""
     if not getattr(bigquery_client, "HAS_BIGQUERY", False):
         return False
+
+    # 1. Streamlit Secrets
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            if "GCP_SERVICE_ACCOUNT_JSON" in st.secrets or "gcp_service_account" in st.secrets:
+                return True
+    except Exception:
+        pass
+
+    # 2. Variáveis de ambiente
+    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or os.getenv("GCP_SERVICE_ACCOUNT_JSON"):
+        return True
+
+    # 3. Arquivo local de credenciais
     cred_path = bigquery_client.get_credentials_path()
-    has_creds = bool(
-        (cred_path and os.path.exists(cred_path))
-        or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-        or os.getenv("GCP_SERVICE_ACCOUNT_JSON")
-    )
+    has_creds = bool(cred_path and os.path.exists(cred_path))
     return has_creds
 
 def is_bigquery_mode() -> bool:
@@ -177,14 +188,15 @@ def buscar_telefone(ddd: str, telefone: str):
         except Exception as e:
             _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
+    # Regra 5: Não executar busca reversa na API pública quando ela não oferecer o endpoint
+    if is_public_api():
+        _last_error = "A API pública ('api.cnpj.pw') não possui suporte a buscas reversas por telefone. Configure o Google BigQuery ou utilize uma API local com banco próprio."
+        return []
+
     try:
         res = requests.get(f"{BASE_URL}/telefone/{ddd}/{telefone}", verify=False, timeout=15)
         if res.status_code == 200:
             return res.json().get('resultados_paginacao', [])
-        elif res.status_code == 404 and is_public_api():
-            _last_error = (
-                "A API pública ('api.cnpj.pw') não possui suporte a buscas reversas por telefone (retornou HTTP 404)."
-            )
         else:
             _last_error = f"Erro na busca por telefone ({res.status_code}): {res.text}"
     except requests.exceptions.ConnectionError:
@@ -205,14 +217,15 @@ def buscar_email(email: str):
         except Exception as e:
             _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
+    # Regra 5: Não executar busca reversa na API pública quando ela não oferecer o endpoint
+    if is_public_api():
+        _last_error = "A API pública ('api.cnpj.pw') não possui suporte a buscas reversas por e-mail. Configure o Google BigQuery ou utilize uma API local com banco próprio."
+        return []
+
     try:
         res = requests.get(f"{BASE_URL}/email/{email}", verify=False, timeout=15)
         if res.status_code == 200:
             return res.json().get('resultados_paginacao', [])
-        elif res.status_code == 404 and is_public_api():
-            _last_error = (
-                "A API pública ('api.cnpj.pw') não possui suporte a buscas reversas por e-mail (retornou HTTP 404)."
-            )
         else:
             _last_error = f"Erro na busca por e-mail ({res.status_code}): {res.text}"
     except requests.exceptions.ConnectionError:

@@ -347,7 +347,7 @@ class TestEntityExpansionSemantics(unittest.TestCase):
         st.session_state["multi_expanded_emails"] = {}
         st.session_state["selected_cnpj"] = "11222333000181"
 
-    @patch("cnpjpw.local_app.graph_dispatcher.api_client.get_cnpj")
+    @patch("cnpjpw.local_app.graph_dispatcher.data_service.get_cnpj")
     def test_expand_empresa_valid_and_root_protection(self, mock_get_cnpj):
         """Valida validação de 14 dígitos, proteção da raiz e deduplicação para empresas."""
         from cnpjpw.local_app import graph_dispatcher
@@ -396,8 +396,8 @@ class TestEntityExpansionSemantics(unittest.TestCase):
         )
         mock_get_cnpj.assert_not_called()
 
-    @patch("cnpjpw.local_app.graph_dispatcher.api_client.buscar_socio")
-    @patch("cnpjpw.local_app.graph_dispatcher.api_client.buscar_empresas_do_socio")
+    @patch("cnpjpw.local_app.graph_dispatcher.data_service.buscar_socio")
+    @patch("cnpjpw.local_app.graph_dispatcher.data_service.buscar_empresas_do_socio")
     def test_expand_socio_doc_vs_name_and_filters_root(self, mock_buscar_nome, mock_buscar_socio):
         """Valida prioridade de documento não-mascarado, fallback por nome e exclusão de raiz/duplicatas."""
         from cnpjpw.local_app import graph_dispatcher
@@ -438,7 +438,7 @@ class TestEntityExpansionSemantics(unittest.TestCase):
         mock_buscar_socio.assert_not_called()
         self.assertIn("MARIA DE SOUZA", st.session_state.multi_expanded_socios)
 
-    @patch("cnpjpw.local_app.graph_dispatcher.api_client.buscar_telefone")
+    @patch("cnpjpw.local_app.graph_dispatcher.data_service.buscar_telefone")
     def test_expand_telefone_strict_ddd_and_filters_root(self, mock_buscar_tel):
         """Valida que telefone exige DDD explícito (sem fallback para '11') e filtra raiz."""
         from cnpjpw.local_app import graph_dispatcher
@@ -463,12 +463,12 @@ class TestEntityExpansionSemantics(unittest.TestCase):
             ent_val="(21) 98888-7777",
             root_id="11222333000181"
         )
-        mock_buscar_tel.assert_called_once_with("21", "988887777")
+        mock_buscar_tel.assert_called_once_with("21", "988887777", months=3)
         self.assertIn("21988887777", st.session_state.multi_expanded_phones)
         self.assertEqual(len(st.session_state.multi_expanded_phones["21988887777"]), 1)
         self.assertEqual(st.session_state.multi_expanded_phones["21988887777"][0]["cnpj"], "33444555000122")
 
-    @patch("cnpjpw.local_app.graph_dispatcher.api_client.buscar_email")
+    @patch("cnpjpw.local_app.graph_dispatcher.data_service.buscar_email")
     def test_expand_email_normalization_and_validation(self, mock_buscar_email):
         """Valida normalização (strip + lower), validação de formato e filtro de raiz."""
         from cnpjpw.local_app import graph_dispatcher
@@ -493,7 +493,10 @@ class TestEntityExpansionSemantics(unittest.TestCase):
             ent_val="email_  Diretoria@PomeloTech.COM.br ",
             root_id="11222333000181"
         )
-        mock_buscar_email.assert_called_once_with("diretoria@pomelotech.com.br")
+        mock_buscar_email.assert_called_once_with("diretoria@pomelotech.com.br", months=3)
+        self.assertIn("diretoria@pomelotech.com.br", st.session_state.multi_expanded_emails)
+        self.assertEqual(len(st.session_state.multi_expanded_emails["diretoria@pomelotech.com.br"]), 1)
+        self.assertEqual(st.session_state.multi_expanded_emails["diretoria@pomelotech.com.br"][0]["cnpj"], "55666777000144")
         self.assertIn("diretoria@pomelotech.com.br", st.session_state.multi_expanded_emails)
         self.assertEqual(len(st.session_state.multi_expanded_emails["diretoria@pomelotech.com.br"]), 1)
         self.assertEqual(st.session_state.multi_expanded_emails["diretoria@pomelotech.com.br"][0]["cnpj"], "55666777000144")

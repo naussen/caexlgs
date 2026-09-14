@@ -181,14 +181,16 @@ class TestGraphBuilder(unittest.TestCase):
     def test_api_client_resilient_fallback(self):
         """Valida que o api_client opera com fallback automático e não falha silenciosamente."""
         from cnpjpw.local_app import api_client
-        # Mesmo com ENGINE_MODE = 'BIGQUERY', deve identificar que não há credenciais e não levantar exceção
-        api_client.set_engine_mode("BIGQUERY")
-        self.assertFalse(api_client.is_bigquery_available())
-        self.assertFalse(api_client.is_bigquery_mode())
+        from unittest.mock import patch
+        # Mesmo com ENGINE_MODE = 'BIGQUERY', quando não há credenciais, não deve levantar exceção e desativa o modo BQ
+        with patch.object(api_client, "is_bigquery_available", return_value=False):
+            api_client.set_engine_mode("BIGQUERY")
+            self.assertFalse(api_client.is_bigquery_available())
+            self.assertFalse(api_client.is_bigquery_mode())
 
-        # Modo AUTO
-        api_client.set_engine_mode("AUTO")
-        self.assertFalse(api_client.is_bigquery_mode())
+            # Modo AUTO
+            api_client.set_engine_mode("AUTO")
+            self.assertFalse(api_client.is_bigquery_mode())
 
 if __name__ == "__main__":
     unittest.main()

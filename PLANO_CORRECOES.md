@@ -277,7 +277,18 @@ Existe apenas um ponto Python responsável por validar e executar ações do gra
 
 Cada tipo de entidade executa uma operação previsível, sem duplicar a raiz e sem inventar DDD.
 
-### Fase 5 — Unificar BigQuery e fallback de API
+### Fase 5 — Unificar BigQuery e fallback de API [CONCLUÍDA]
+
+> **Status:** Concluída integralmente.
+> - Criada a camada unificada de dados `cnpjpw/local_app/data_service.py` com contrato padronizado de resposta `QueryResult` (`results`, `source`, `error`, `fallback_used`).
+> - Implementada detecção completa de credenciais do BigQuery (`is_bigquery_available`): suporte a `st.secrets["GCP_SERVICE_ACCOUNT_JSON"]`, `st.secrets["gcp_service_account"]`, variáveis de ambiente (`GOOGLE_APPLICATION_CREDENTIALS`, `GCP_SERVICE_ACCOUNT_JSON`) e arquivo local exclusivo para ambiente de desenvolvimento.
+> - Unificado o acesso a dados de todas as telas e abas:
+>   - **Ficha Cadastral:** Busca cadastral (`get_cnpj`) e botões de busca reversa de contatos roteados via `data_service`.
+>   - **Busca Simples e Avançada:** Pesquisas por Razão Social, Sócio, Telefone, E-mail e Busca Difusa roteadas via `data_service`.
+>   - **Grafo:** Expansões pontuais de entidades no `graph_dispatcher.py` e expansões globais roteadas via `data_service`.
+> - **Regra 5 cumprida:** Bloqueio ativo de requisições de busca reversa por telefone ou e-mail na API pública (`api.cnpj.pw`), prevenindo erros 404 e requisições HTTP desnecessárias.
+> - **Regra 6 e 7 cumpridas:** Indicador transparente de origem dos dados exibido nas telas de resultados e detalhes; selo lateral `Sigilo Ativo` condicional — exibindo selo verde apenas quando BigQuery ou API Local Privada são utilizados, e selo informativo âmbar `API Pública (Sem Sigilo)` quando conectada à API externa pública.
+> - Criada suíte de testes dedicada `cnpjpw/tests/test_data_service.py` (11 testes cobrindo credenciais, contrato de retorno, fallback transparente, bloqueio de reversa pública e cálculo de sigilo). Todos os 46 testes do repositório aprovados.
 
 #### Problema
 

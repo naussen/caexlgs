@@ -13,6 +13,7 @@ if _app_dir not in sys.path:
 
 import api_client
 import bigquery_client
+import data_service
 
 ALLOWED_ACTIONS = {"expand", "delete", "toggle_feature", "clear"}
 ALLOWED_ENTITY_TYPES = {
@@ -151,13 +152,15 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
             return
 
         with st.spinner(f"Consultando dados e conexões da empresa {ent_label or cnpj_limpo}..."):
-            emp_dados = api_client.get_cnpj(cnpj_limpo)
+            resp_obj = data_service.get_cnpj(cnpj_limpo)
+            emp_dados = resp_obj.get("results") if isinstance(resp_obj, dict) and "results" in resp_obj else resp_obj
             if emp_dados and not emp_dados.get('erro'):
                 st.session_state.multi_expanded_companies[cnpj_limpo] = emp_dados
                 nome_emp = emp_dados.get('nome_empresarial') or emp_dados.get('razao_social') or cnpj_limpo
                 st.toast(f"✅ Relações de {nome_emp} expandidas com sucesso!")
             else:
-                st.warning(f"Não foi possível obter dados para o CNPJ {cnpj_limpo}.")
+                err = resp_obj.get("error") if isinstance(resp_obj, dict) else None
+                st.warning(err or f"Não foi possível obter dados para o CNPJ {cnpj_limpo}.")
 
     # 2. SÓCIO OU UBO
     elif ent_type in ("SOCIO", "UBO"):
@@ -178,9 +181,11 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
 
         with st.spinner(f"Buscando empresas vinculadas ao sócio {nome_original}..."):
             if tem_doc_valido:
-                res_soc = api_client.buscar_socio(doc_digits)
+                resp_obj = data_service.buscar_socio(doc_digits)
             else:
-                res_soc = api_client.buscar_empresas_do_socio(val_str.strip().upper())
+                resp_obj = data_service.buscar_empresas_do_socio(val_str.strip().upper())
+
+            res_soc = resp_obj.get("results") if isinstance(resp_obj, dict) and "results" in resp_obj else resp_obj
 
             # Regra 4: Adicionar empresas encontradas, excluindo duplicatas e a raiz
             seen_cnpjs = set()
@@ -199,7 +204,8 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
                 st.session_state.multi_expanded_socios[cache_key] = filtered_res
                 st.toast(f"✅ {len(filtered_res)} empresa(s) do sócio {nome_original} adicionada(s) à rede!")
             else:
-                st.warning(f"Nenhuma outra empresa encontrada para o sócio {nome_original}.")
+                err = resp_obj.get("error") if isinstance(resp_obj, dict) else None
+                st.warning(err or f"Nenhuma outra empresa encontrada para o sócio {nome_original}.")
 
     # 3. TELEFONE
     elif ent_type == "TELEFONE":
@@ -220,10 +226,9 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
             return
 
         with st.spinner(f"Buscando empresas com telefone ({ddd}) {num}..."):
-            if st.session_state.get('use_bigquery_for_contacts', False):
-                res_tel = bigquery_client.buscar_telefone(ddd, num, months=st.session_state.get('bq_months', 3))
-            else:
-                res_tel = api_client.buscar_telefone(ddd, num)
+            months = st.session_state.get('bq_months', 3)
+            resp_obj = data_service.buscar_telefone(ddd, num, months=months)
+            res_tel = resp_obj.get("results") if isinstance(resp_obj, dict) and "results" in resp_obj else resp_obj
 
             seen_cnpjs = set()
             filtered_tel = []
@@ -241,7 +246,8 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
                 st.session_state.multi_expanded_phones[fone_limpo] = filtered_tel
                 st.toast(f"✅ {len(filtered_tel)} empresa(s) com telefone ({ddd}) {num} adicionada(s)!")
             else:
-                st.warning(f"Nenhuma outra empresa encontrada com telefone ({ddd}) {num}.")
+                err = resp_obj.get("error") if isinstance(resp_obj, dict) else None
+                st.warning(err or f"Nenhuma outra empresa encontrada com telefone ({ddd}) {num}.")
 
     # 4. E-MAIL
     elif ent_type == "EMAIL":
@@ -263,10 +269,9 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
             return
 
         with st.spinner(f"Buscando empresas com e-mail {em_limpo}..."):
-            if st.session_state.get('use_bigquery_for_contacts', False):
-                res_em = bigquery_client.buscar_email(em_limpo, months=st.session_state.get('bq_months', 3))
-            else:
-                res_em = api_client.buscar_email(em_limpo)
+            months = st.session_state.get('bq_months', 3)
+            resp_obj = data_service.buscar_email(em_limpo, months=months)
+            res_em = resp_obj.get("results") if isinstance(resp_obj, dict) and "results" in resp_obj else resp_obj
 
             seen_cnpjs = set()
             filtered_em = []
@@ -284,7 +289,8 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
                 st.session_state.multi_expanded_emails[em_limpo] = filtered_em
                 st.toast(f"✅ {len(filtered_em)} empresa(s) com e-mail {em_limpo} adicionada(s)!")
             else:
-                st.warning(f"Nenhuma outra empresa encontrada com e-mail {em_limpo}.")
+                err = resp_obj.get("error") if isinstance(resp_obj, dict) else None
+                st.warning(err or f"Nenhuma outra empresa encontrada com e-mail {em_limpo}.")
 
 def handle_graph_action(event: Dict[str, Any], expand_fn: Optional[Callable] = None, root_id: Optional[str] = None) -> bool:
     """

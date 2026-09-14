@@ -18,6 +18,7 @@ import pandas as pd
 import time
 import auth
 import graph_dispatcher
+import data_service
 
 st.set_page_config(page_title="POMELO — Inteligência Societária", page_icon="🍊", layout="wide")
 
@@ -44,7 +45,11 @@ if query_socio and query_socio != st.session_state.get('last_loaded_socio_query'
     st.session_state.view = 'RESULTS'
     st.session_state.search_title = f"Empresas do Sócio: {query_socio}"
     with st.spinner(f"Buscando empresas de {query_socio}..."):
-        st.session_state.search_results = api_client.buscar_empresas_do_socio(query_socio)
+        resp_qs = data_service.buscar_empresas_do_socio(query_socio)
+        st.session_state.search_results = resp_qs.results
+        st.session_state.last_search_source = resp_qs.source
+        st.session_state.last_search_fallback = resp_qs.fallback_used
+        st.session_state.last_search_error = resp_qs.error
 
 
 # Inicializando o state para navegação, histórico e configurações
@@ -189,28 +194,16 @@ def render_back_button():
                 st.rerun()
 
 def executar_busca_telefone(ddd: str, tel: str):
-    if st.session_state.use_bigquery_for_contacts:
-        months = st.session_state.get('bq_months', 3)
-        resultados = bigquery_client.buscar_telefone(ddd, tel, months=months)
-        erro = bigquery_client.get_last_error()
-        origem = "Google BigQuery (Nuvem)"
-    else:
-        resultados = api_client.buscar_telefone(ddd, tel)
-        erro = api_client.get_last_error()
-        origem = "API Local/Pública"
-    return resultados, erro, origem
+    months = st.session_state.get('bq_months', 3)
+    resp = data_service.buscar_telefone(ddd, tel, months=months)
+    origem = data_service.get_source_display_name(resp.source, resp.fallback_used)
+    return resp.results, resp.error, origem, resp.source, resp.fallback_used
 
 def executar_busca_email(email: str):
-    if st.session_state.use_bigquery_for_contacts:
-        months = st.session_state.get('bq_months', 3)
-        resultados = bigquery_client.buscar_email(email, months=months)
-        erro = bigquery_client.get_last_error()
-        origem = "Google BigQuery (Nuvem)"
-    else:
-        resultados = api_client.buscar_email(email)
-        erro = api_client.get_last_error()
-        origem = "API Local/Pública"
-    return resultados, erro, origem
+    months = st.session_state.get('bq_months', 3)
+    resp = data_service.buscar_email(email, months=months)
+    origem = data_service.get_source_display_name(resp.source, resp.fallback_used)
+    return resp.results, resp.error, origem, resp.source, resp.fallback_used
 
 
 # ---- SIDEBAR ----
@@ -224,12 +217,21 @@ if os.path.exists(logo_path):
 else:
     st.sidebar.title("🍊 POMELO")
 
-st.sidebar.markdown(
-    "<div style='background:#e8f5e9; border:1px solid #c8e6c9; border-radius:6px; padding:4px 8px; margin: 8px 0 12px 0; font-size:11px; color:#2e7d32; font-weight:600; display:flex; align-items:center; gap:6px;'>"
-    "<span>🟢</span> Base CNPJ Conectada • Sigilo Ativo"
-    "</div>",
-    unsafe_allow_html=True
-)
+# Selo de Sigilo Conforme Origem dos Dados (Fase 5)
+if data_service.is_privacy_active():
+    st.sidebar.markdown(
+        "<div style='background:#e8f5e9; border:1px solid #c8e6c9; border-radius:6px; padding:4px 8px; margin: 8px 0 12px 0; font-size:11px; color:#2e7d32; font-weight:600; display:flex; align-items:center; gap:6px;'>"
+        "<span>🟢</span> Base CNPJ Conectada • Sigilo Ativo"
+        "</div>",
+        unsafe_allow_html=True
+    )
+else:
+    st.sidebar.markdown(
+        "<div style='background:#fff3e0; border:1px solid #ffe0b2; border-radius:6px; padding:4px 8px; margin: 8px 0 12px 0; font-size:11px; color:#e65100; font-weight:600; display:flex; align-items:center; gap:6px;'>"
+        "<span>🟠</span> Base CNPJ Conectada • API Pública (Sem Sigilo)"
+        "</div>",
+        unsafe_allow_html=True
+    )
 
 # Navegação Principal
 menu_options = ["🔍 Busca Simples", "⚡ Busca Avançada", "📊 Resultados", "🏢 Dossiê / Grafo"]
@@ -310,7 +312,10 @@ if st.sidebar.button("🚪 Sair", key="sb_btn_logout", use_container_width=True)
 
 # Rodapé Institucional
 st.sidebar.markdown("---")
-st.sidebar.caption("🔒 **Ambiente Seguro & Sigiloso**")
+if data_service.is_privacy_active():
+    st.sidebar.caption("🔒 **Ambiente Seguro & Sigiloso**")
+else:
+    st.sidebar.caption("🌐 **Ambiente Conectado à API Pública**")
 st.sidebar.caption("POMELO Intelligence • v2.5")
 
 
@@ -334,9 +339,12 @@ if st.session_state.view == 'HOME':
         razao_input = st.text_input("Digite a Razão Social:")
         if st.button("Buscar Razão Social", key="btn_busca_razao"):
             if razao_input:
-                api_client.clear_last_error()
                 with st.spinner("Consultando Razão Social..."):
-                    resultados = api_client.buscar_razao_social(razao_input)
+                    resp = data_service.buscar_razao_social(razao_input)
+                    resultados = resp.results
+                    st.session_state.last_search_source = resp.source
+                    st.session_state.last_search_fallback = resp.fallback_used
+                    st.session_state.last_search_error = resp.error
                 navigate_to('RESULTS', title=f"Resultados para Razão Social: {razao_input}", results=resultados)
                 st.rerun()
 
@@ -348,20 +356,20 @@ if st.session_state.view == 'HOME':
         socio_doc = st.text_input("Documento (CPF/CNPJ):")
         socio_nome = st.text_input("Nome do Sócio (opcional):")
         if st.button("Buscar Sócio", key="btn_busca_socio"):
-            api_client.clear_last_error()
             with st.spinner("Consultando empresas do sócio..."):
                 if socio_doc and not socio_nome:
-                    resultados = api_client.buscar_socio(socio_doc)
+                    resp = data_service.buscar_socio(socio_doc)
                     titulo = f"Resultados para Sócio Doc: {socio_doc}"
                 elif socio_nome:
-                    params = {'socio_nome': socio_nome}
-                    if socio_doc:
-                        params['socio_doc'] = socio_doc
-                    resultados = api_client.busca_difusa(params)
+                    resp = data_service.buscar_empresas_do_socio(socio_nome, socio_doc)
                     titulo = f"Empresas do Sócio Nome: {socio_nome}"
                 else:
-                    resultados = []
+                    resp = data_service.QueryResult(results=[], source=data_service.get_api_source(), error=None)
                     titulo = "Busca de Sócios"
+                resultados = resp.results
+                st.session_state.last_search_source = resp.source
+                st.session_state.last_search_fallback = resp.fallback_used
+                st.session_state.last_search_error = resp.error
             navigate_to('RESULTS', title=titulo, results=resultados)
             st.rerun()
                 
@@ -375,10 +383,11 @@ if st.session_state.view == 'HOME':
                     ddd = telefone_input[:2]
                     tel = telefone_input[2:]
                     with st.spinner("Buscando empresas por telefone..."):
-                        resultados, erro, origem = executar_busca_telefone(ddd, tel)
-                    navigate_to('RESULTS', title=f"Resultados para Telefone: ({ddd}) {tel}", results=resultados)
-                    if erro:
+                        resultados, erro, origem, src, fb = executar_busca_telefone(ddd, tel)
+                        st.session_state.last_search_source = src
+                        st.session_state.last_search_fallback = fb
                         st.session_state.last_search_error = erro
+                    navigate_to('RESULTS', title=f"Resultados para Telefone: ({ddd}) {tel}", results=resultados)
                     st.rerun()
                 else:
                     st.error("Informe pelo menos 10 dígitos (DDD + Telefone).")
@@ -387,10 +396,11 @@ if st.session_state.view == 'HOME':
             if st.button("Buscar Email", key="btn_busca_email"):
                 if email_input:
                     with st.spinner("Buscando empresas por e-mail..."):
-                        resultados, erro, origem = executar_busca_email(email_input)
-                    navigate_to('RESULTS', title=f"Resultados para E-mail: {email_input}", results=resultados)
-                    if erro:
+                        resultados, erro, origem, src, fb = executar_busca_email(email_input)
+                        st.session_state.last_search_source = src
+                        st.session_state.last_search_fallback = fb
                         st.session_state.last_search_error = erro
+                    navigate_to('RESULTS', title=f"Resultados para E-mail: {email_input}", results=resultados)
                     st.rerun()
 
 elif st.session_state.view == 'ADVANCED':
@@ -416,7 +426,6 @@ elif st.session_state.view == 'ADVANCED':
             
         submitted = st.form_submit_button("Pesquisar")
         if submitted:
-            api_client.clear_last_error()
             params = {}
             if razao: params['razao_social'] = razao
             if fantasia: params['nome_fantasia'] = fantasia
@@ -434,9 +443,12 @@ elif st.session_state.view == 'ADVANCED':
             if cap_min > 0: params['capital_social_min'] = cap_min
             
             with st.spinner("Executando busca avançada..."):
-                resultados = api_client.busca_difusa(params)
+                resp = data_service.busca_difusa(params)
+                resultados = resp.results
+                st.session_state.last_search_source = resp.source
+                st.session_state.last_search_fallback = resp.fallback_used
+                st.session_state.last_search_error = resp.error
             navigate_to('RESULTS', title="Resultados da Busca Avançada", results=resultados)
-            st.session_state.last_search_error = api_client.get_last_error()
             st.rerun()
 
 elif st.session_state.view == 'RESULTS':
@@ -447,6 +459,15 @@ elif st.session_state.view == 'RESULTS':
     erro = st.session_state.get('last_search_error') or api_client.get_last_error() or bigquery_client.get_last_error()
     if erro:
         st.error(erro)
+
+    # Exibe a origem real da consulta na interface (Regra 6 e 7 da Fase 5)
+    src_code = st.session_state.get('last_search_source')
+    fallback_used = st.session_state.get('last_search_fallback', False)
+    if src_code:
+        src_label = data_service.get_source_display_name(src_code, fallback_used)
+        st.caption(f"🔍 **Origem dos dados:** {src_label}")
+    if fallback_used:
+        st.info("ℹ️ **Aviso de Fallback:** A consulta primária via BigQuery falhou. Os dados foram obtidos via API de contingência.")
     
     resultados = st.session_state.search_results
     if not resultados:
@@ -487,16 +508,23 @@ elif st.session_state.view == 'DETAILS':
     else:
         api_client.clear_last_error()
         with st.spinner(f"Carregando dados do CNPJ {cnpj}..."):
-            dados = api_client.get_cnpj(cnpj)
+            resp_det = data_service.get_cnpj(cnpj)
+            dados = resp_det.results
+            st.session_state.last_search_source = resp_det.source
+            st.session_state.last_search_fallback = resp_det.fallback_used
             
         if not dados:
-            erro = api_client.get_last_error()
-            st.error(erro or f"CNPJ {cnpj} não encontrado ou erro na API.")
+            erro = resp_det.error or api_client.get_last_error() or f"CNPJ {cnpj} não encontrado ou erro na API."
+            st.error(erro)
         else:
             col_title, col_newtab = st.columns([5, 1])
             with col_title:
                 st.header(dados.get('nome_empresarial', ''))
                 st.subheader(f"CNPJ: {cnpj}")
+                origem_det = data_service.get_source_display_name(resp_det.source, resp_det.fallback_used)
+                st.caption(f"🔍 **Origem dos dados:** {origem_det}")
+                if resp_det.fallback_used:
+                    st.info(f"ℹ️ **Aviso de Fallback:** {resp_det.error}")
             with col_newtab:
                 st.link_button("↗️ Abrir em Nova Aba", f"?cnpj={cnpj}", help="Abre esta empresa em uma nova aba independente do navegador")
             
@@ -524,9 +552,11 @@ elif st.session_state.view == 'DETAILS':
                     if len(tel1) > 2:
                         if st.button(f"📞 {tel1}", key="btn_tel1"):
                             with st.spinner(f"Buscando empresas com telefone {tel1}..."):
-                                resultados, erro, origem = executar_busca_telefone(tel1[:2], tel1[2:])
-                            navigate_to('RESULTS', title=f"Empresas com o Telefone {tel1}", results=resultados)
+                                resultados, erro, origem, src, fb = executar_busca_telefone(tel1[:2], tel1[2:])
+                            st.session_state.last_search_source = src
+                            st.session_state.last_search_fallback = fb
                             st.session_state.last_search_error = erro
+                            navigate_to('RESULTS', title=f"Empresas com o Telefone {tel1}", results=resultados)
                             st.rerun()
                     else:
                         st.write("*Telefone 1 não informado*")
@@ -534,9 +564,11 @@ elif st.session_state.view == 'DETAILS':
                     if len(tel2) > 2:
                         if st.button(f"📞 {tel2}", key="btn_tel2"):
                             with st.spinner(f"Buscando empresas com telefone {tel2}..."):
-                                resultados, erro, origem = executar_busca_telefone(tel2[:2], tel2[2:])
-                            navigate_to('RESULTS', title=f"Empresas com o Telefone {tel2}", results=resultados)
+                                resultados, erro, origem, src, fb = executar_busca_telefone(tel2[:2], tel2[2:])
+                            st.session_state.last_search_source = src
+                            st.session_state.last_search_fallback = fb
                             st.session_state.last_search_error = erro
+                            navigate_to('RESULTS', title=f"Empresas com o Telefone {tel2}", results=resultados)
                             st.rerun()
                 
                 with col2:
@@ -545,9 +577,11 @@ elif st.session_state.view == 'DETAILS':
                     if email:
                         if st.button(f"✉️ {email}", key="btn_email"):
                             with st.spinner(f"Buscando empresas com e-mail {email}..."):
-                                resultados, erro, origem = executar_busca_email(email)
-                            navigate_to('RESULTS', title=f"Empresas com o E-mail {email}", results=resultados)
+                                resultados, erro, origem, src, fb = executar_busca_email(email)
+                            st.session_state.last_search_source = src
+                            st.session_state.last_search_fallback = fb
                             st.session_state.last_search_error = erro
+                            navigate_to('RESULTS', title=f"Empresas com o E-mail {email}", results=resultados)
                             st.rerun()
                     else:
                         st.write("*E-mail não informado*")
@@ -581,15 +615,18 @@ elif st.session_state.view == 'DETAILS':
                                 with c_btn1:
                                     if st.button("🏢 Empresas", key=f"btn_soc_{i}_{nome_socio[:15]}", help="Ver empresas nesta mesma tela"):
                                         with st.spinner(f"Buscando empresas de {nome_socio}..."):
-                                            resultados = api_client.buscar_empresas_do_socio(nome_socio, doc_socio)
-                                            erro = api_client.get_last_error()
+                                            resp_soc = data_service.buscar_empresas_do_socio(nome_socio, doc_socio)
+                                            resultados = resp_soc.results
+                                            erro = resp_soc.error
+                                        st.session_state.last_search_source = resp_soc.source
+                                        st.session_state.last_search_fallback = resp_soc.fallback_used
+                                        if erro:
+                                            st.session_state.last_search_error = erro
                                         navigate_to(
                                             'RESULTS',
                                             title=f"Empresas do Sócio: {nome_socio}",
                                             results=resultados
                                         )
-                                        if erro:
-                                            st.session_state.last_search_error = erro
                                         st.rerun()
                                 with c_btn2:
                                     enc_socio = urllib.parse.quote_plus(nome_socio)
@@ -636,22 +673,24 @@ elif st.session_state.view == 'DETAILS':
                         n_socio = s.get('nome')
                         if n_socio and n_socio not in st.session_state.graph_cache_socios_empresas:
                             with st.spinner(f"Carregando empresas do sócio {n_socio}..."):
-                                res_soc = api_client.buscar_empresas_do_socio(n_socio, s.get('cnpj_cpf'))
-                                st.session_state.graph_cache_socios_empresas[n_socio] = res_soc or []
+                                resp_soc = data_service.buscar_empresas_do_socio(n_socio, s.get('cnpj_cpf'))
+                                st.session_state.graph_cache_socios_empresas[n_socio] = resp_soc.results or []
 
                 # Expansão sob demanda: Contatos (acionada via toolbar do grafo)
                 if st.session_state.get('graph_expand_contacts', False):
                     em = dados.get('correio_eletronico')
                     if em and em not in st.session_state.graph_cache_contatos_empresas:
                         with st.spinner(f"Buscando empresas com e-mail {em}..."):
-                            res_em = api_client.buscar_email(em)
-                            st.session_state.graph_cache_contatos_empresas[em] = res_em or []
+                            months = st.session_state.get('bq_months', 3)
+                            resp_em = data_service.buscar_email(em, months=months)
+                            st.session_state.graph_cache_contatos_empresas[em] = resp_em.results or []
                     
                     t1 = f"{dados.get('ddd1', '') or ''}{dados.get('telefone_1', '') or ''}".strip()
                     if len(t1) > 2 and t1 not in st.session_state.graph_cache_contatos_empresas:
                         with st.spinner(f"Buscando empresas com telefone {t1}..."):
-                            res_t1 = api_client.buscar_telefone(t1[:2], t1[2:])
-                            st.session_state.graph_cache_contatos_empresas[t1] = res_t1 or []
+                            months = st.session_state.get('bq_months', 3)
+                            resp_t1 = data_service.buscar_telefone(t1[:2], t1[2:], months=months)
+                            st.session_state.graph_cache_contatos_empresas[t1] = resp_t1.results or []
 
                 # Compilação das Empresas da Rede para Inteligência
                 all_cluster_companies = [dados] + list(st.session_state.multi_expanded_companies.values())
