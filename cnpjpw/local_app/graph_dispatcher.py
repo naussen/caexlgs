@@ -101,6 +101,8 @@ def clear_graph_expansions():
     st.session_state.multi_expanded_emails = {}
     st.session_state.graph_expand_socios = False
     st.session_state.graph_expand_contacts = False
+    st.session_state.graph_expand_socios_summary = None
+    st.session_state.graph_expand_contacts_summary = None
     st.toast("🧹 Grafo reiniciado para a empresa raiz.")
 
 def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "", root_id: Optional[str] = None):
@@ -330,10 +332,16 @@ def handle_graph_action(event: Dict[str, Any], expand_fn: Optional[Callable] = N
     elif action == "toggle_feature":
         feature = event.get("feature")
         if feature == "expand_socios":
-            st.session_state.graph_expand_socios = not st.session_state.get('graph_expand_socios', False)
+            new_val = not st.session_state.get('graph_expand_socios', False)
+            st.session_state.graph_expand_socios = new_val
+            if not new_val:
+                st.session_state.graph_expand_socios_summary = None
             return True
         elif feature == "expand_contacts":
-            st.session_state.graph_expand_contacts = not st.session_state.get('graph_expand_contacts', False)
+            new_val = not st.session_state.get('graph_expand_contacts', False)
+            st.session_state.graph_expand_contacts = new_val
+            if not new_val:
+                st.session_state.graph_expand_contacts_summary = None
             return True
         return False
 

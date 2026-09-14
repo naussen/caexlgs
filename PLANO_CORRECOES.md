@@ -326,7 +326,27 @@ A ficha cadastral utiliza wrappers próprios para contatos; o grafo chama `api_c
 
 Uma mesma consulta produz o mesmo resultado independentemente do botão que a iniciou e informa claramente origem, fallback e erro.
 
-### Fase 6 — Corrigir expansões globais
+### Fase 6 — Corrigir expansões globais [CONCLUÍDA]
+
+> **Status:** Concluída integralmente.
+> - Criado o módulo `cnpjpw/local_app/graph_expansions.py` implementando:
+>   - **Expandir sócios até 2º grau (`expand_socios_grau2`):**
+>     - Grau 0 definido como a empresa raiz; Grau 1 como os sócios diretos da raiz; Grau 2 como as outras empresas desses sócios.
+>     - Não expande os sócios das empresas de grau 2 (sem avanço descontrolado para grau 3).
+>     - Deduplicação estrita por CNPJ completo de 14 dígitos e descarte automático da empresa raiz.
+>     - Limite configurável aplicado (padrão 25 empresas por sócio).
+>     - Resumo auditável detalhado: sócios consultados, empresas encontradas, adicionadas, duplicatas descartadas e falhas.
+>   - **Expandir contatos da rede (`expand_contacts_network`):**
+>     - Escopo unificado e transparente: analisa os contatos únicos de todas as empresas visíveis na rede.
+>     - Coleta e deduplicação prévia de contatos antes de disparar consultas.
+>     - Filtragem rigorosa: rejeita telefones sem DDD explícito (< 10 dígitos) ou repetitivos e e-mails fora do padrão sintático.
+>     - Limite configurável de 25 empresas por contato e cache persistido por chave normalizada.
+>     - Tratamento gracioso da restrição de busca reversa na API pública (Regra 5), registrando avisos sem abortar o fluxo.
+> - Interface atualizada em `cnpjpw/local_app/app.py` e `components/vis_graph/index.html`:
+>   - Botões renomeados com tooltips informativos: `👥 Expandir Sócios (2º Grau)` e `📞 Expandir Contatos da Rede`.
+>   - Banners visuais de sumário auditável exibidos quando as expansões estão ativas.
+>   - Gerenciamento de ciclo de vida e limpeza de sumários no `graph_dispatcher.py` na ação `clear` e alternâncias.
+> - Criada suíte de testes unitários dedicada `cnpjpw/tests/test_global_expansions.py` (10/10 testes aprovados). Total do repositório: 56/56 testes aprovados.
 
 #### Expandir sócios até segundo grau
 

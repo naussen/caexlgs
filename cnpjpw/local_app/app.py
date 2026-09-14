@@ -19,6 +19,7 @@ import time
 import auth
 import graph_dispatcher
 import data_service
+import graph_expansions
 
 st.set_page_config(page_title="POMELO — Inteligência Societária", page_icon="🍊", layout="wide")
 
@@ -93,6 +94,12 @@ if 'graph_expand_socios' not in st.session_state:
     st.session_state.graph_expand_socios = False
 if 'graph_expand_contacts' not in st.session_state:
     st.session_state.graph_expand_contacts = False
+if 'graph_expand_socios_summary' not in st.session_state:
+    st.session_state.graph_expand_socios_summary = None
+if 'graph_expand_contacts_summary' not in st.session_state:
+    st.session_state.graph_expand_contacts_summary = None
+if 'graph_max_companies_limit' not in st.session_state:
+    st.session_state.graph_max_companies_limit = 25
 if 'graph_cache_socios_empresas' not in st.session_state:
     st.session_state.graph_cache_socios_empresas = {}
 if 'graph_cache_contatos_empresas' not in st.session_state:
@@ -666,39 +673,42 @@ elif st.session_state.view == 'DETAILS':
                     "ou utilize o seletor rápido abaixo."
                 )
 
-                # Expansão sob demanda: Sócios (acionada via toolbar do grafo)
+                # 1. Expansão sob demanda: Sócios 2º Grau (Fase 6)
                 if st.session_state.get('graph_expand_socios', False):
-                    socios_list = dados.get('socios', [])
-                    for s in socios_list:
-                        n_socio = s.get('nome')
-                        if n_socio and n_socio not in st.session_state.graph_cache_socios_empresas:
-                            with st.spinner(f"Carregando empresas do sócio {n_socio}..."):
-                                resp_soc = data_service.buscar_empresas_do_socio(n_socio, s.get('cnpj_cpf'))
-                                st.session_state.graph_cache_socios_empresas[n_socio] = resp_soc.results or []
+                    with st.spinner("Expandindo empresas vinculadas aos sócios da raiz (Grau 2)..."):
+                        limit = st.session_state.get('graph_max_companies_limit', 25)
+                        updated_cache, soc_summary = graph_expansions.expand_socios_grau2(
+                            root_data=dados,
+                            max_per_partner=limit,
+                            cache=st.session_state.graph_cache_socios_empresas
+                        )
+                        st.session_state.graph_cache_socios_empresas = updated_cache
+                        st.session_state.graph_expand_socios_summary = soc_summary
 
-                # Expansão sob demanda: Contatos (acionada via toolbar do grafo)
-                if st.session_state.get('graph_expand_contacts', False):
-                    em = dados.get('correio_eletronico')
-                    if em and em not in st.session_state.graph_cache_contatos_empresas:
-                        with st.spinner(f"Buscando empresas com e-mail {em}..."):
-                            months = st.session_state.get('bq_months', 3)
-                            resp_em = data_service.buscar_email(em, months=months)
-                            st.session_state.graph_cache_contatos_empresas[em] = resp_em.results or []
-                    
-                    t1 = f"{dados.get('ddd1', '') or ''}{dados.get('telefone_1', '') or ''}".strip()
-                    if len(t1) > 2 and t1 not in st.session_state.graph_cache_contatos_empresas:
-                        with st.spinner(f"Buscando empresas com telefone {t1}..."):
-                            months = st.session_state.get('bq_months', 3)
-                            resp_t1 = data_service.buscar_telefone(t1[:2], t1[2:], months=months)
-                            st.session_state.graph_cache_contatos_empresas[t1] = resp_t1.results or []
-
-                # Compilação das Empresas da Rede para Inteligência
-                all_cluster_companies = [dados] + list(st.session_state.multi_expanded_companies.values())
+                # 2. Coleta de Empresas Visíveis na Rede para Expansão de Contatos e Inteligência
+                visible_cluster_companies = [dados] + list(st.session_state.multi_expanded_companies.values())
                 if st.session_state.get('graph_expand_socios'):
                     for comp_list in st.session_state.graph_cache_socios_empresas.values():
-                        all_cluster_companies.extend(comp_list)
+                        visible_cluster_companies.extend(comp_list)
                 for comp_list in st.session_state.multi_expanded_socios.values():
-                    all_cluster_companies.extend(comp_list)
+                    visible_cluster_companies.extend(comp_list)
+
+                # 3. Expansão sob demanda: Contatos da Rede (Fase 6)
+                if st.session_state.get('graph_expand_contacts', False):
+                    with st.spinner(f"Buscando empresas com contatos compartilhados na rede ({len(visible_cluster_companies)} empresas analisadas)..."):
+                        limit = st.session_state.get('graph_max_companies_limit', 25)
+                        months = st.session_state.get('bq_months', 3)
+                        updated_cache, cont_summary = graph_expansions.expand_contacts_network(
+                            visible_companies=visible_cluster_companies,
+                            max_per_contact=limit,
+                            cache=st.session_state.graph_cache_contatos_empresas,
+                            months=months
+                        )
+                        st.session_state.graph_cache_contatos_empresas = updated_cache
+                        st.session_state.graph_expand_contacts_summary = cont_summary
+
+                # Compilação Completa das Empresas da Rede para Inteligência
+                all_cluster_companies = list(visible_cluster_companies)
                 if st.session_state.get('graph_expand_contacts'):
                     for comp_list in st.session_state.graph_cache_contatos_empresas.values():
                         all_cluster_companies.extend(comp_list)
@@ -706,6 +716,30 @@ elif st.session_state.view == 'DETAILS':
                     all_cluster_companies.extend(comp_list)
                 for comp_list in st.session_state.multi_expanded_emails.values():
                     all_cluster_companies.extend(comp_list)
+
+                # Banners informativos dos resumos auditáveis de expansão global
+                if st.session_state.get('graph_expand_socios') and st.session_state.get('graph_expand_socios_summary'):
+                    s = st.session_state.graph_expand_socios_summary
+                    st.info(
+                        f"👥 **Expansão de Sócios (Grau 2) Ativa:** {s.get('socios_consultados', 0)} sócios consultados "
+                        f"({s.get('total_socios_raiz', 0)} sócios diretos na raiz) • "
+                        f"{s.get('empresas_adicionadas', 0)} empresas conectadas • "
+                        f"{s.get('duplicatas_removidas', 0)} descartadas (raiz/repetidas/teto {st.session_state.get('graph_max_companies_limit', 25)})"
+                        + (f" • ⚠️ {s.get('falhas')} falhas" if s.get('falhas') else "")
+                    )
+
+                if st.session_state.get('graph_expand_contacts') and st.session_state.get('graph_expand_contacts_summary'):
+                    c = st.session_state.graph_expand_contacts_summary
+                    c_msg = (
+                        f"📞 **Expansão de Contatos da Rede Ativa:** {c.get('empresas_analisadas', 0)} empresas analisadas • "
+                        f"{c.get('contatos_unicos', 0)} contatos únicos ({c.get('telefones', 0)} telefones, {c.get('emails', 0)} e-mails) • "
+                        f"{c.get('empresas_adicionadas', 0)} empresas conectadas • "
+                        f"{c.get('duplicatas_removidas', 0)} descartadas"
+                    )
+                    if c.get("avisos_erros"):
+                        st.warning(c_msg + f" • ℹ️ Observações ({len(c['avisos_erros'])}): " + "; ".join(c['avisos_erros'][:2]))
+                    else:
+                        st.info(c_msg)
 
                 # Execução dos Motores de Inteligência (com cache por CNPJ para alta performance)
                 if st.session_state.get('last_analyzed_cnpj') != cnpj:
@@ -746,7 +780,7 @@ elif st.session_state.view == 'DETAILS':
                 c_btn_exp1, c_btn_exp2, c_btn_exp3 = st.columns([1.5, 1.5, 2])
                 with c_btn_exp1:
                     lbl_soc = "👥 Ocultar Sócios (2º Grau)" if st.session_state.get('graph_expand_socios') else "👥 Expandir Sócios (2º Grau)"
-                    if st.button(lbl_soc, key="btn_toggle_expand_socios", use_container_width=True):
+                    if st.button(lbl_soc, key="btn_toggle_expand_socios", use_container_width=True, help="Busca outras empresas onde os sócios diretos da raiz participam (Grau 2)"):
                         graph_dispatcher.handle_graph_action({
                             "action": "toggle_feature",
                             "feature": "expand_socios",
@@ -754,8 +788,8 @@ elif st.session_state.view == 'DETAILS':
                         })
                         st.rerun()
                 with c_btn_exp2:
-                    lbl_cont = "📞 Ocultar Contatos" if st.session_state.get('graph_expand_contacts') else "📞 Expandir Contatos"
-                    if st.button(lbl_cont, key="btn_toggle_expand_contacts", use_container_width=True):
+                    lbl_cont = "📞 Ocultar Contatos" if st.session_state.get('graph_expand_contacts') else "📞 Expandir Contatos da Rede"
+                    if st.button(lbl_cont, key="btn_toggle_expand_contacts", use_container_width=True, help="Busca empresas que compartilham telefones ou e-mails de todas as empresas visíveis na rede"):
                         graph_dispatcher.handle_graph_action({
                             "action": "toggle_feature",
                             "feature": "expand_contacts",
@@ -763,7 +797,7 @@ elif st.session_state.view == 'DETAILS':
                         })
                         st.rerun()
                 with c_btn_exp3:
-                    if st.button("🧹 Limpar Relações Expandidas", key="btn_clear_graph_exp", use_container_width=True):
+                    if st.button("🧹 Limpar Relações Expandidas", key="btn_clear_graph_exp", use_container_width=True, help="Reinicia a visualização mantendo apenas a empresa raiz e seus vínculos diretos"):
                         graph_dispatcher.handle_graph_action({
                             "action": "clear",
                             "nonce": f"ext_clear_{time.time()}"
