@@ -58,7 +58,14 @@ Teste realizado com o CNPJ `75323907000190`:
 
 ## 4. Ordem de implementação
 
-### Fase 1 — Adicionar login e senha compartilhados
+### Fase 1 — Adicionar login e senha compartilhados [CONCLUÍDA]
+
+> **Status:** Concluída integralmente.
+> - Módulo de autenticação `cnpjpw/local_app/auth.py` implementado com suporte a Streamlit Secrets, variáveis de ambiente e fallback `caexlgs`/`caexlgs`, comparando com `hmac.compare_digest`.
+> - Barreira inserida em `cnpjpw/local_app/app.py` logo após `st.set_page_config`, impedindo leitura de URL, consultas e renderização antes do login.
+> - Botão `🚪 Sair` adicionado na barra lateral com invalidação de sessão e rerun.
+> - Suíte de testes `cnpjpw/tests/test_auth.py` criada com 10 casos de teste cobrindo todos os cenários obrigatórios (10/10 aprovados).
+> - Documentação atualizada em `README.md` e `DOCUMENTACAO_APP.md`.
 
 #### Resultado esperado
 

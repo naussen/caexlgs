@@ -90,6 +90,15 @@ graph TD
 * **Dossiê em PDF:** Relatório formal pronto para instrução de processos ou relatórios de auditoria, contendo dados da matriz, quadro societário, parecer do analista, indicadores de risco e matriz de conexões.
 * **Planilha em Excel (`.xlsx`):** Dados estruturados em múltiplas abas com formatação profissional.
 
+### 3.7 `auth.py` (Autenticação e Controle de Acesso)
+* **Localização:** `C:\pomelo\cnpjpw\local_app\auth.py`.
+* **Responsabilidade:** Barreira obrigatória que bloqueia qualquer execução de busca, processamento de parâmetros de URL (`?cnpj=...`) ou renderização da aplicação antes da autenticação do usuário.
+* **Segurança e Resolução:**
+  * Prioridade de resolução de credenciais: Streamlit Secrets (`POMELO_LOGIN` / `POMELO_PASSWORD`) > Variáveis de Ambiente > Defaults temporários (`caexlgs` / `caexlgs`).
+  * Validação puramente em memória com `hmac.compare_digest` para proteção contra ataques de temporização (*timing attacks*).
+  * Sanitização ativa: senhas nunca são registradas em logs, query parameters, exceções ou toasts.
+  * Encerramento de sessão via botão `🚪 Sair` na barra lateral com invalidação de sessão, remoção de chaves temporárias e bloqueio imediato.
+
 ---
 
 ## 4. Legenda Visual do Grafo

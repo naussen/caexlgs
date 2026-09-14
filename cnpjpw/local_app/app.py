@@ -16,8 +16,19 @@ import case_manager
 import report_generator
 import pandas as pd
 import time
+import auth
 
 st.set_page_config(page_title="POMELO — Inteligência Societária", page_icon="🍊", layout="wide")
+
+# ==========================================
+# BARREIRA DE AUTENTICAÇÃO OBRIGATÓRIA (FASE 1)
+# ==========================================
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    auth.render_login_screen()
+    st.stop()
 
 # Detecta ?cnpj=... ou ?socio=... na URL para abertura direta (útil para links em nova aba)
 query_cnpj = st.query_params.get("cnpj")
@@ -377,6 +388,15 @@ if st.session_state.get('history'):
     if st.sidebar.button("🧹 Limpar Histórico", key="sb_clear_history", use_container_width=True):
         st.session_state.history = []
         st.rerun()
+
+# Encerramento de Sessão
+st.sidebar.markdown("---")
+if st.sidebar.button("🚪 Sair", key="sb_btn_logout", use_container_width=True):
+    st.session_state.authenticated = False
+    for k in list(st.session_state.keys()):
+        if k.startswith("login_") or k in ("auth_error", "selected_cnpj", "current_cnpj"):
+            st.session_state.pop(k, None)
+    st.rerun()
 
 # Rodapé Institucional
 st.sidebar.markdown("---")

@@ -61,6 +61,14 @@ Plataforma avançada para **consulta de dados abertos da Receita Federal**, rast
 
 4. Acesse no navegador: `http://localhost:8501`
 
+5. **Autenticação:**
+   - Credencial padrão inicial: usuário `caexlgs` e senha `caexlgs`.
+   - Para personalizar em produção (Streamlit Cloud ou servidor local), defina em `.streamlit/secrets.toml` ou variáveis de ambiente:
+     ```toml
+     POMELO_LOGIN = "seu_usuario"
+     POMELO_PASSWORD = "sua_senha_segura"
+     ```
+
 ---
 
 ## 🛡️ Segurança & Privacidade
