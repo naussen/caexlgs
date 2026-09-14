@@ -113,77 +113,9 @@ if 'enable_ubo_detection' not in st.session_state:
 
 def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = ""):
     """Executa a expansão pontual de uma entidade específica (Pessoa Física, Jurídica, Telefone, E-mail)."""
-    ent_type = (ent_type or '').upper()
-    val_str = str(ent_val or '').strip()
-
-    # Sanitização defensiva contra prefixos de node IDs
-    if val_str.lower().startswith("socio_"):
-        val_str = val_str[6:].strip()
-    elif val_str.lower().startswith("cnpj_"):
-        val_str = val_str[5:].strip()
-    elif val_str.lower().startswith("email_"):
-        val_str = val_str[6:].strip()
-    elif val_str.lower().startswith("tel_"):
-        val_str = val_str[4:].strip()
-
-    if ent_type in ("EMPRESA", "EMPRESA_ROOT") or (val_str.isdigit() and len(val_str) in (8, 14)):
-        cnpj_limpo = "".join(filter(str.isdigit, val_str))
-        if cnpj_limpo:
-            if cnpj_limpo not in st.session_state.multi_expanded_companies:
-                with st.spinner(f"Consultando dados e conexões da empresa {ent_label or cnpj_limpo}..."):
-                    emp_dados = api_client.get_cnpj(cnpj_limpo)
-                    if emp_dados and not emp_dados.get('erro'):
-                        st.session_state.multi_expanded_companies[cnpj_limpo] = emp_dados
-                        st.toast(f"✅ Relações de {emp_dados.get('nome_empresarial') or cnpj_limpo} expandidas com sucesso!")
-                    else:
-                        st.warning(f"Não foi possível obter dados para o CNPJ {cnpj_limpo}.")
-            else:
-                st.info("As conexões desta empresa já estão expandidas na rede.")
-    elif ent_type in ("SOCIO", "UBO"):
-        socio_nome = val_str.upper()
-        if socio_nome:
-            if socio_nome not in st.session_state.multi_expanded_socios or not st.session_state.multi_expanded_socios.get(socio_nome):
-                with st.spinner(f"Buscando empresas vinculadas ao sócio {socio_nome}..."):
-                    res_soc = api_client.buscar_empresas_do_socio(socio_nome)
-                    if res_soc:
-                        st.session_state.multi_expanded_socios[socio_nome] = res_soc
-                        st.toast(f"✅ {len(res_soc)} empresa(s) do sócio {socio_nome} adicionada(s) à rede!")
-                    else:
-                        st.warning(f"Nenhuma outra empresa encontrada para o sócio {socio_nome}.")
-            else:
-                st.info("As empresas deste sócio já estão expandidas na rede.")
-    elif ent_type == "TELEFONE":
-        fone_limpo = "".join(filter(str.isdigit, val_str))
-        if len(fone_limpo) >= 8:
-            if fone_limpo not in st.session_state.multi_expanded_phones or not st.session_state.multi_expanded_phones.get(fone_limpo):
-                if len(fone_limpo) in (10, 11):
-                    ddd = fone_limpo[:2]
-                    num = fone_limpo[2:]
-                else:
-                    ddd = "11"
-                    num = fone_limpo
-                with st.spinner(f"Buscando empresas com telefone ({ddd}) {num}..."):
-                    res_tel = api_client.buscar_telefone(ddd, num)
-                    if res_tel:
-                        st.session_state.multi_expanded_phones[fone_limpo] = res_tel
-                        st.toast(f"✅ {len(res_tel)} empresa(s) com telefone ({ddd}) {num} adicionada(s)!")
-                    else:
-                        st.warning(f"Nenhuma outra empresa encontrada com telefone ({ddd}) {num}.")
-            else:
-                st.info("As empresas deste telefone já estão expandidas na rede.")
-    elif ent_type == "EMAIL":
-        em_limpo = val_str.lower()
-        if em_limpo:
-            if em_limpo not in st.session_state.multi_expanded_emails or not st.session_state.multi_expanded_emails.get(em_limpo):
-                with st.spinner(f"Buscando empresas com e-mail {em_limpo}..."):
-                    res_em = api_client.buscar_email(em_limpo)
-                    if res_em:
-                        st.session_state.multi_expanded_emails[em_limpo] = res_em
-                        st.toast(f"✅ {len(res_em)} empresa(s) com e-mail {em_limpo} adicionada(s)!")
-                    else:
-                        st.warning(f"Nenhuma outra empresa encontrada com e-mail {em_limpo}.")
-            else:
-                st.info("As empresas deste e-mail já estão expandidas na rede.")
+    return graph_dispatcher.executar_expansao_entidade(
+        ent_type, ent_val, ent_label, root_id=st.session_state.get('selected_cnpj') or st.session_state.get('current_cnpj')
+    )
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def obter_cnae_completo(cnae_cod: str, cnae_desc: str = ""):
@@ -824,7 +756,7 @@ elif st.session_state.view == 'DETAILS':
                     if graph_dispatcher.handle_graph_action(
                         comp_event,
                         expand_fn=executar_expansao_entidade,
-                        root_id=st.session_state.get('current_cnpj')
+                        root_id=cnpj
                     ):
                         st.rerun()
 
@@ -855,7 +787,7 @@ elif st.session_state.view == 'DETAILS':
                                     "entity_value": target_n["val"],
                                     "entity_label": target_n["label"],
                                     "nonce": f"ext_expand_{time.time()}"
-                                }, expand_fn=executar_expansao_entidade, root_id=st.session_state.get('current_cnpj'))
+                                }, expand_fn=executar_expansao_entidade, root_id=cnpj)
                                 st.rerun()
                     with c_act_del:
                         if st.button("✕ Remover Nó", key="btn_act_del_node", use_container_width=True, help="Remove temporariamente esta entidade do grafo"):
@@ -866,7 +798,7 @@ elif st.session_state.view == 'DETAILS':
                                     "node_id": sel_node_id,
                                     "entity_label": target_n["label"] if target_n else sel_node_id,
                                     "nonce": f"ext_delete_{time.time()}"
-                                }, root_id=st.session_state.get('current_cnpj'))
+                                }, root_id=cnpj)
                                 st.rerun()
 
                 st.divider()

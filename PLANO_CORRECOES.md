@@ -231,7 +231,16 @@ Eliminar tratamentos diferentes para botão interno, seletor externo e query par
 
 Existe apenas um ponto Python responsável por validar e executar ações do grafo.
 
-### Fase 4 — Corrigir a semântica da expansão específica
+### Fase 4 — Corrigir a semântica da expansão específica [CONCLUÍDA]
+
+> **Status:** Concluída integralmente.
+> - Implementadas as 4 regras semânticas estritas em `cnpjpw/local_app/graph_dispatcher.py` (`executar_expansao_entidade`):
+>   - **Empresa:** Validação estrita de 14 dígitos numéricos; proteção ativa da empresa raiz (impede inclusão em `multi_expanded_companies` e orienta sobre o uso de expansão de 2º grau/contatos); deduplicação de chamadas.
+>   - **Sócio / UBO:** Priorização de documento quando disponível e desmascarado (`api_client.buscar_socio`); fallback robusto por nome (`api_client.buscar_empresas_do_socio`); normalização em maiúsculas apenas para chave de cache preservando rótulo original; filtro obrigatório da raiz e deduplicação de CNPJs retornados.
+>   - **Telefone:** Sanitização numérica estrita; exigência mandatória de DDD explícito (10 ou 11 dígitos); remoção do fallback arbitrário `ddd = '11'`; filtro da empresa raiz e deduplicação de resultados.
+>   - **E-mail:** Normalização completa (`strip().lower()`); validação sintática (presença de `@`, partes não-vazias de usuário e domínio com ponto); filtro da empresa raiz e deduplicação de resultados.
+> - Atualizado `cnpjpw/local_app/app.py` para delegar a expansão pontual diretamente para `graph_dispatcher.executar_expansao_entidade(..., root_id=cnpj)`.
+> - Criada suíte de testes unitários `TestEntityExpansionSemantics` em `cnpjpw/tests/test_graph_events.py` cobrindo todas as regras por tipo e garantindo proteção da raiz (25/25 testes aprovados no projeto).
 
 #### Regras por tipo
 

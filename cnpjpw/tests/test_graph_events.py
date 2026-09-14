@@ -335,5 +335,169 @@ class TestGraphEvents(unittest.TestCase):
         self.assertFalse(res2)
         self.assertNotIn(f"cnpj_{root_cnpj}", st.session_state["graph_excluded_nodes"])
 
+
+class TestEntityExpansionSemantics(unittest.TestCase):
+    """Testes unitários das 4 regras semânticas de expansão pontual de entidades (Fase 4)."""
+
+    def setUp(self):
+        import streamlit as st
+        st.session_state["multi_expanded_companies"] = {}
+        st.session_state["multi_expanded_socios"] = {}
+        st.session_state["multi_expanded_phones"] = {}
+        st.session_state["multi_expanded_emails"] = {}
+        st.session_state["selected_cnpj"] = "11222333000181"
+
+    @patch("cnpjpw.local_app.graph_dispatcher.api_client.get_cnpj")
+    def test_expand_empresa_valid_and_root_protection(self, mock_get_cnpj):
+        """Valida validação de 14 dígitos, proteção da raiz e deduplicação para empresas."""
+        from cnpjpw.local_app import graph_dispatcher
+        import streamlit as st
+
+        mock_get_cnpj.return_value = {
+            "cnpj": "99888777000100",
+            "nome_empresarial": "EMPRESA AFILIADA LTDA"
+        }
+
+        # 1. Expansão de empresa válida
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="EMPRESA",
+            ent_val="cnpj_99888777000100",
+            ent_label="EMPRESA AFILIADA LTDA",
+            root_id="11222333000181"
+        )
+        mock_get_cnpj.assert_called_once_with("99888777000100")
+        self.assertIn("99888777000100", st.session_state.multi_expanded_companies)
+
+        # 2. Re-expansão não chama a API novamente (deduplicação)
+        mock_get_cnpj.reset_mock()
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="EMPRESA",
+            ent_val="99888777000100",
+            root_id="11222333000181"
+        )
+        mock_get_cnpj.assert_not_called()
+
+        # 3. Empresa raiz NÃO deve ser adicionada a multi_expanded_companies
+        mock_get_cnpj.reset_mock()
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="EMPRESA",
+            ent_val="11.222.333/0001-81",
+            root_id="11222333000181"
+        )
+        mock_get_cnpj.assert_not_called()
+        self.assertNotIn("11222333000181", st.session_state.multi_expanded_companies)
+
+        # 4. CNPJ inválido (< 14 dígitos) não chama a API
+        mock_get_cnpj.reset_mock()
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="EMPRESA",
+            ent_val="12345",
+            root_id="11222333000181"
+        )
+        mock_get_cnpj.assert_not_called()
+
+    @patch("cnpjpw.local_app.graph_dispatcher.api_client.buscar_socio")
+    @patch("cnpjpw.local_app.graph_dispatcher.api_client.buscar_empresas_do_socio")
+    def test_expand_socio_doc_vs_name_and_filters_root(self, mock_buscar_nome, mock_buscar_socio):
+        """Valida prioridade de documento não-mascarado, fallback por nome e exclusão de raiz/duplicatas."""
+        from cnpjpw.local_app import graph_dispatcher
+        import streamlit as st
+
+        # 1. Documento não mascarado (11 dígitos) utiliza buscar_socio
+        mock_buscar_socio.return_value = [
+            {"cnpj": "11222333000181", "razao_social": "EMPRESA RAIZ"}, # deve ser filtrada
+            {"cnpj": "44555666000177", "razao_social": "EMPRESA DO SOCIO B"},
+            {"cnpj": "44555666000177", "razao_social": "EMPRESA DO SOCIO B DUPLICADA"}, # deve ser deduplicada
+        ]
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="SOCIO",
+            ent_val="12345678901",
+            ent_label="JOAO DA SILVA",
+            root_id="11222333000181"
+        )
+        mock_buscar_socio.assert_called_once_with("12345678901")
+        mock_buscar_nome.assert_not_called()
+        self.assertIn("12345678901", st.session_state.multi_expanded_socios)
+        res_list = st.session_state.multi_expanded_socios["12345678901"]
+        self.assertEqual(len(res_list), 1)
+        self.assertEqual(res_list[0]["cnpj"], "44555666000177")
+
+        # 2. Documento mascarado ou apenas nome utiliza buscar_empresas_do_socio com upper()
+        mock_buscar_socio.reset_mock()
+        mock_buscar_nome.reset_mock()
+        mock_buscar_nome.return_value = [
+            {"cnpj": "77888999000166", "razao_social": "EMPRESA NOVA"}
+        ]
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="SOCIO",
+            ent_val="socio_maria de souza",
+            ent_label="Maria de Souza",
+            root_id="11222333000181"
+        )
+        mock_buscar_nome.assert_called_once_with("MARIA DE SOUZA")
+        mock_buscar_socio.assert_not_called()
+        self.assertIn("MARIA DE SOUZA", st.session_state.multi_expanded_socios)
+
+    @patch("cnpjpw.local_app.graph_dispatcher.api_client.buscar_telefone")
+    def test_expand_telefone_strict_ddd_and_filters_root(self, mock_buscar_tel):
+        """Valida que telefone exige DDD explícito (sem fallback para '11') e filtra raiz."""
+        from cnpjpw.local_app import graph_dispatcher
+        import streamlit as st
+
+        # 1. Telefone sem DDD (8 dígitos) é rejeitado
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="TELEFONE",
+            ent_val="tel_988887777",
+            root_id="11222333000181"
+        )
+        mock_buscar_tel.assert_not_called()
+        self.assertNotIn("988887777", st.session_state.multi_expanded_phones)
+
+        # 2. Telefone válido com DDD (11 dígitos) busca com ddd e num separados
+        mock_buscar_tel.return_value = [
+            {"cnpj": "11222333000181", "razao_social": "EMPRESA RAIZ"}, # filtrada
+            {"cnpj": "33444555000122", "razao_social": "EMPRESA COLIGADA"}
+        ]
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="TELEFONE",
+            ent_val="(21) 98888-7777",
+            root_id="11222333000181"
+        )
+        mock_buscar_tel.assert_called_once_with("21", "988887777")
+        self.assertIn("21988887777", st.session_state.multi_expanded_phones)
+        self.assertEqual(len(st.session_state.multi_expanded_phones["21988887777"]), 1)
+        self.assertEqual(st.session_state.multi_expanded_phones["21988887777"][0]["cnpj"], "33444555000122")
+
+    @patch("cnpjpw.local_app.graph_dispatcher.api_client.buscar_email")
+    def test_expand_email_normalization_and_validation(self, mock_buscar_email):
+        """Valida normalização (strip + lower), validação de formato e filtro de raiz."""
+        from cnpjpw.local_app import graph_dispatcher
+        import streamlit as st
+
+        # 1. E-mail com formato inválido (sem @ ou sem domínio com ponto)
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="EMAIL",
+            ent_val="email_invalido.com",
+            root_id="11222333000181"
+        )
+        mock_buscar_email.assert_not_called()
+
+        # 2. E-mail válido com maiúsculas e espaços
+        mock_buscar_email.return_value = [
+            {"cnpj": "11222333000181"}, # filtrada
+            {"cnpj": "55666777000144"},
+            {"cnpj": "55666777000144"}  # duplicada
+        ]
+        graph_dispatcher.executar_expansao_entidade(
+            ent_type="EMAIL",
+            ent_val="email_  Diretoria@PomeloTech.COM.br ",
+            root_id="11222333000181"
+        )
+        mock_buscar_email.assert_called_once_with("diretoria@pomelotech.com.br")
+        self.assertIn("diretoria@pomelotech.com.br", st.session_state.multi_expanded_emails)
+        self.assertEqual(len(st.session_state.multi_expanded_emails["diretoria@pomelotech.com.br"]), 1)
+        self.assertEqual(st.session_state.multi_expanded_emails["diretoria@pomelotech.com.br"][0]["cnpj"], "55666777000144")
+
+
 if __name__ == "__main__":
     unittest.main()
