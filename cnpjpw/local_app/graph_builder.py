@@ -813,6 +813,52 @@ def build_graph_html(
         .status-pill {{ font-size: 11px; font-weight: 600; color: #1565c0; background: #e3f2fd; padding: 2px 8px; border-radius: 12px; }}
         #network-wrapper {{ position: relative; flex: 1; width: 100%; height: calc(100% - 42px); }}
         #network-container {{ width: 100%; height: 100%; }}
+        #node-actions-menu {{
+          display: none;
+          position: absolute;
+          gap: 4px;
+          align-items: center;
+          background: rgba(255, 255, 255, 0.96);
+          padding: 2px 5px;
+          border-radius: 18px;
+          box-shadow: 0 3px 12px rgba(0,0,0,0.22);
+          border: 1px solid #b0bec5;
+          z-index: 1000;
+          pointer-events: auto;
+          user-select: none;
+          transition: opacity 0.15s ease;
+        }}
+        .node-action-btn {{
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          border: none;
+          font-family: Arial, sans-serif;
+          font-weight: 900;
+          line-height: 22px;
+          text-align: center;
+          cursor: pointer;
+          padding: 0;
+          transition: transform 0.15s ease, background-color 0.15s ease;
+        }}
+        .btn-expand-node {{
+          background-color: #2e7d32;
+          color: #ffffff;
+          font-size: 14px;
+        }}
+        .btn-expand-node:hover {{
+          transform: scale(1.22);
+          background-color: #1b5e20;
+        }}
+        .btn-delete-node {{
+          background-color: #d32f2f;
+          color: #ffffff;
+          font-size: 11px;
+        }}
+        .btn-delete-node:hover {{
+          transform: scale(1.22);
+          background-color: #b71c1c;
+        }}
         #quick-hint {{
           position: absolute; bottom: 8px; left: 10px; background: rgba(255,255,255,0.92);
           padding: 3px 8px; border-radius: 4px; font-size: 11px; color: #607d8b; border: 1px solid #e0e0e0;
@@ -847,7 +893,11 @@ def build_graph_html(
 
         <div id="network-wrapper">
           <div id="network-container"></div>
-          <div id="quick-hint">💡 Arraste os nós para organizar livremente (eles permanecem onde você soltar). Dê scroll para zoom.</div>
+          <div id="node-actions-menu">
+            <button id="btn-node-expand" class="node-action-btn btn-expand-node" title="✚ Buscar e expandir relações exclusivamente desta entidade">+</button>
+            <button id="btn-node-delete" class="node-action-btn btn-delete-node" title="✕ Remover esta entidade da rede">✕</button>
+          </div>
+          <div id="quick-hint">💡 Passe o mouse na entidade para ver ✚ (buscar relações deste nó) e ✕ (remover da rede). Arraste livremente.</div>
         </div>
       </div>
 
@@ -923,6 +973,136 @@ def build_graph_html(
             }});
           }}
         }});
+
+        var actionMenu = document.getElementById('node-actions-menu');
+        var btnExpand = document.getElementById('btn-node-expand');
+        var btnDelete = document.getElementById('btn-node-delete');
+        var activeTargetNode = null;
+        var isMouseOverMenu = false;
+        var hideTimeout = null;
+
+        function updateActionMenuPosition(nodeId) {{
+          if (!network || !actionMenu) return;
+          try {{
+            var pos = network.getPosition(nodeId);
+            var domPos = network.canvasToDOM(pos);
+            actionMenu.style.left = (domPos.x - 26) + 'px';
+            actionMenu.style.top = (domPos.y - 36) + 'px';
+            actionMenu.style.display = 'flex';
+
+            var nodeObj = nodes.get(nodeId);
+            if (nodeObj && (nodeObj._type === 'EMPRESA_ROOT' || (String(nodeId).indexOf('cnpj_') === 0 && nodeObj._type === 'EMPRESA_ROOT'))) {{
+              btnDelete.style.display = 'none';
+            }} else {{
+              btnDelete.style.display = 'inline-block';
+            }}
+          }} catch (e) {{
+            actionMenu.style.display = 'none';
+          }}
+        }}
+
+        network.on('hoverNode', function(params) {{
+          clearTimeout(hideTimeout);
+          activeTargetNode = params.node;
+          updateActionMenuPosition(params.node);
+        }});
+
+        network.on('blurNode', function() {{
+          hideTimeout = setTimeout(function() {{
+            if (!isMouseOverMenu && actionMenu) {{
+              actionMenu.style.display = 'none';
+              activeTargetNode = null;
+            }}
+          }}, 350);
+        }});
+
+        if (actionMenu) {{
+          actionMenu.addEventListener('mouseenter', function() {{
+            isMouseOverMenu = true;
+            clearTimeout(hideTimeout);
+          }});
+
+          actionMenu.addEventListener('mouseleave', function() {{
+            isMouseOverMenu = false;
+            actionMenu.style.display = 'none';
+            activeTargetNode = null;
+          }});
+        }}
+
+        network.on('dragging', function() {{
+          if (activeTargetNode) updateActionMenuPosition(activeTargetNode);
+        }});
+
+        network.on('zoom', function() {{
+          if (activeTargetNode) updateActionMenuPosition(activeTargetNode);
+        }});
+
+        network.on('doubleClick', function(params) {{
+          if (params.nodes.length > 0) {{
+            activeTargetNode = params.nodes[0];
+            triggerExpand(params.nodes[0]);
+          }}
+        }});
+
+        function triggerExpand(nodeId) {{
+          if (!nodeId) return;
+          var nodeObj = nodes.get(nodeId);
+          if (!nodeObj) return;
+          var nType = nodeObj._type || 'OUTRO';
+          var nVal = nodeObj._raw_val || nodeObj.id;
+          var nLbl = nodeObj._raw_label || nodeObj.label || nodeObj.id;
+
+          if (actionMenu) actionMenu.style.display = 'none';
+          activeTargetNode = null;
+
+          try {{
+            var url = new URL(window.parent.location.href);
+            url.searchParams.set('expand_type', nType);
+            url.searchParams.set('expand_val', nVal);
+            url.searchParams.set('expand_label', nLbl);
+            window.parent.location.href = url.toString();
+          }} catch(err) {{
+            try {{
+              window.top.location.search = '?expand_type=' + encodeURIComponent(nType) + '&expand_val=' + encodeURIComponent(nVal) + '&expand_label=' + encodeURIComponent(nLbl);
+            }} catch(err2) {{
+              console.warn("Navegação top:", err2);
+            }}
+          }}
+        }}
+
+        function triggerDelete(nodeId) {{
+          if (!nodeId) return;
+          nodes.remove(nodeId);
+          if (actionMenu) actionMenu.style.display = 'none';
+          activeTargetNode = null;
+          autoCenter(100);
+
+          try {{
+            var url = new URL(window.parent.location.href);
+            url.searchParams.set('exclude_node', nodeId);
+            window.parent.location.href = url.toString();
+          }} catch(err) {{
+            try {{
+              window.top.location.search = '?exclude_node=' + encodeURIComponent(nodeId);
+            }} catch(err2) {{
+              console.warn("Navegação top:", err2);
+            }}
+          }}
+        }}
+
+        if (btnExpand) {{
+          btnExpand.addEventListener('click', function(e) {{
+            e.stopPropagation();
+            if (activeTargetNode) triggerExpand(activeTargetNode);
+          }});
+        }}
+
+        if (btnDelete) {{
+          btnDelete.addEventListener('click', function(e) {{
+            e.stopPropagation();
+            if (activeTargetNode) triggerDelete(activeTargetNode);
+          }});
+        }}
 
         function autoCenter(delay) {{
           setTimeout(function() {{

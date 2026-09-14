@@ -198,101 +198,93 @@ def executar_busca_email(email: str):
 # ---- SIDEBAR ----
 logo_path = os.path.join(os.path.dirname(__file__), "assets", "pomelo_logo.png")
 if os.path.exists(logo_path):
-    col_logo, col_txt = st.sidebar.columns([1, 2])
+    col_logo, col_txt = st.sidebar.columns([1, 2.2])
     with col_logo:
-        st.image(logo_path, width=75)
+        st.image(logo_path, width=70)
     with col_txt:
-        st.markdown("<h3 style='margin-bottom:0;'>POMELO</h3><span style='font-size:11px; color:#666;'>Inteligência Societária & Análise de Redes</span>", unsafe_allow_html=True)
+        st.markdown("<h3 style='margin-bottom:0; font-weight:800; color:#1a237e;'>POMELO</h3><span style='font-size:11px; color:#546e7a; font-weight:500;'>Inteligência Societária & Grafos</span>", unsafe_allow_html=True)
 else:
     st.sidebar.title("🍊 POMELO")
 
-st.sidebar.markdown("---")
-
-menu = st.sidebar.radio(
-    "Navegação:",
-    ["Busca Simples", "Busca Avançada", "Resultados", "Detalhes CNPJ"],
-    index=["HOME", "ADVANCED", "RESULTS", "DETAILS"].index(st.session_state.view) if st.session_state.view in ["HOME", "ADVANCED", "RESULTS", "DETAILS"] else 0
+st.sidebar.markdown(
+    "<div style='background:#e8f5e9; border:1px solid #c8e6c9; border-radius:6px; padding:4px 8px; margin: 8px 0 12px 0; font-size:11px; color:#2e7d32; font-weight:600; display:flex; align-items:center; gap:6px;'>"
+    "<span>🟢</span> Base CNPJ Conectada • Sigilo Ativo"
+    "</div>",
+    unsafe_allow_html=True
 )
 
-if menu == "Busca Simples" and st.session_state.view != 'HOME':
-    st.session_state.view = 'HOME'
-elif menu == "Busca Avançada" and st.session_state.view != 'ADVANCED':
-    st.session_state.view = 'ADVANCED'
-elif menu == "Resultados" and st.session_state.view != 'RESULTS':
-    st.session_state.view = 'RESULTS'
-elif menu == "Detalhes CNPJ" and st.session_state.view != 'DETAILS':
-    st.session_state.view = 'DETAILS'
+# Navegação Principal
+menu_options = ["🔍 Busca Simples", "⚡ Busca Avançada", "📊 Resultados", "🏢 Dossiê / Grafo"]
+view_map = {
+    "🔍 Busca Simples": "HOME",
+    "⚡ Busca Avançada": "ADVANCED",
+    "📊 Resultados": "RESULTS",
+    "🏢 Dossiê / Grafo": "DETAILS"
+}
+reverse_map = {v: k for k, v in view_map.items()}
 
-st.sidebar.divider()
-st.sidebar.subheader("⚙️ Conexões & Dados")
+current_idx = list(view_map.values()).index(st.session_state.view) if st.session_state.view in view_map.values() else 0
+menu = st.sidebar.radio("Navegação:", menu_options, index=current_idx)
+target_view = view_map.get(menu, 'HOME')
+if target_view != st.session_state.view:
+    st.session_state.view = target_view
+    st.rerun()
 
-# Seletor de Motor de Dados (Privacidade & Origem)
-target_options = [
-    "Google BigQuery (Sigilo Total & Privado)",
-    "API Pública (api.cnpj.pw - Terceiros)",
-    "API Local (localhost:8000 - PostgreSQL)",
-    "Personalizada"
-]
-current_target_index = target_options.index(st.session_state.api_target) if st.session_state.api_target in target_options else 0
-
-selected_target = st.sidebar.selectbox("Motor de Dados & Privacidade:", target_options, index=current_target_index)
-st.session_state.api_target = selected_target
-
-if selected_target == "Google BigQuery (Sigilo Total & Privado)":
-    api_client.set_engine_mode("BIGQUERY")
-    st.sidebar.success("🔒 **Sigilo Total:** Consultas 100% privadas no seu Google Cloud. Zero requisições enviadas a terceiros.")
-elif selected_target == "API Pública (api.cnpj.pw - Terceiros)":
-    api_client.set_engine_mode("API")
-    api_client.set_base_url("https://api.cnpj.pw")
-    st.sidebar.warning("⚠️ **Modo Terceiros:** As consultas são enviadas para o servidor externo api.cnpj.pw.")
-elif selected_target == "API Local (localhost:8000 - PostgreSQL)":
-    api_client.set_engine_mode("API")
-    api_client.set_base_url("http://localhost:8000")
-else:
-    api_client.set_engine_mode("API")
-    custom_url = st.sidebar.text_input("URL da API:", value=api_client.get_base_url())
-    if custom_url:
-        api_client.set_base_url(custom_url)
-
-# Configuração BigQuery (Integrada e Segura)
-st.sidebar.divider()
-st.sidebar.subheader("☁️ Google BigQuery")
-st.session_state.use_bigquery_for_contacts = st.sidebar.checkbox(
-    "Usar BigQuery para busca por e-mail e telefone",
-    value=st.session_state.use_bigquery_for_contacts,
-    help="Permite buscar empresas por contato diretamente na nuvem do Google sem precisar de banco de dados local."
-)
-
-is_bq_active = st.session_state.use_bigquery_for_contacts or api_client.is_bigquery_mode()
-
-if is_bq_active:
-    # Garante inicialização das credenciais em segundo plano (integradas com sigilo)
+# Inicialização transparente do motor de dados em background (Sigilo Total)
+if api_client.is_bigquery_mode() or st.session_state.use_bigquery_for_contacts:
     bigquery_client.set_project_id(st.session_state.bq_project_id)
     bigquery_client.set_credentials_path(st.session_state.bq_credentials_path)
-    st.sidebar.caption("🔒 **Credenciais Integradas (Sigilo Total)**")
 
-    bq_months = st.sidebar.select_slider(
-        "Janela de busca (meses recentes):",
-        options=[1, 3, 6, 12],
-        value=st.session_state.get('bq_months', 3),
-        help="Define quantos snapshots mensais da base serão consultados. Menor = mais rápido e econômico."
-    )
-    st.session_state.bq_months = bq_months
+# Painel do Caso em Análise (quando houver empresa ativa)
+if st.session_state.get('current_cnpj'):
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("##### 🏢 Caso em Análise")
+    dados_c = st.session_state.get('current_company_data') or {}
+    razao_c = dados_c.get('nome_empresarial') or dados_c.get('razao_social') or f"CNPJ {st.session_state.current_cnpj}"
+    if len(razao_c) > 26:
+        razao_c = razao_c[:24] + "..."
+    st.sidebar.markdown(f"**{razao_c}**")
+    st.sidebar.caption(f"CNPJ: `{st.session_state.current_cnpj}`")
+    
+    sit_c = (dados_c.get('situacao_cadastral_descricao') or 'ATIVA').upper()
+    cor_sit = "🟢" if sit_c == 'ATIVA' else "🔴"
+    st.sidebar.markdown(f"Situação: {cor_sit} **{sit_c}**")
+    
+    col_sb1, col_sb2 = st.sidebar.columns(2)
+    with col_sb1:
+        if st.sidebar.button("🕸️ Grafo", key="sb_btn_ir_grafo", use_container_width=True):
+            navigate_to('DETAILS', cnpj=st.session_state.current_cnpj)
+            st.rerun()
+    with col_sb2:
+        if st.sidebar.button("📑 Dossiê", key="sb_btn_ir_rep", use_container_width=True):
+            navigate_to('DETAILS', cnpj=st.session_state.current_cnpj)
+            st.rerun()
 
-    if st.sidebar.button("🔌 Testar Conexão BigQuery"):
-        bigquery_client.set_project_id(st.session_state.bq_project_id)
-        bigquery_client.set_credentials_path(st.session_state.bq_credentials_path)
-        sucesso, msg = bigquery_client.test_connection()
-        st.session_state.bq_test_status = (sucesso, msg)
+# Histórico de Consultas Recentes
+if st.session_state.get('history'):
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("##### 🕒 Consultas Recentes")
+    for idx_h, hist_item in enumerate(reversed(st.session_state.history[-5:])):
+        t_hist = hist_item.get('tipo', 'CNPJ')
+        v_hist = hist_item.get('valor', '')
+        lbl_btn = f"{t_hist}: {v_hist}"
+        if len(lbl_btn) > 24:
+            lbl_btn = lbl_btn[:22] + "..."
+        if st.sidebar.button(f"🔍 {lbl_btn}", key=f"hist_btn_{idx_h}_{v_hist}", use_container_width=True):
+            if t_hist == 'CNPJ':
+                navigate_to('DETAILS', cnpj=v_hist)
+            else:
+                navigate_to('RESULTS', title=f"Histórico: {v_hist}", results=[])
+            st.rerun()
 
-    if st.session_state.bq_test_status:
-        sucesso, msg = st.session_state.bq_test_status
-        if sucesso:
-            st.sidebar.success(f"✅ {msg}")
-        else:
-            st.sidebar.error(f"❌ {msg}")
-else:
-    st.sidebar.caption("Buscas de telefone e e-mail serão direcionadas à API HTTP configurada acima.")
+    if st.sidebar.button("🧹 Limpar Histórico", key="sb_clear_history", use_container_width=True):
+        st.session_state.history = []
+        st.rerun()
+
+# Rodapé Institucional
+st.sidebar.markdown("---")
+st.sidebar.caption("🔒 **Ambiente Seguro & Sigiloso**")
+st.sidebar.caption("POMELO Intelligence • v2.5")
 
 
 # ---- VIEWS ----
@@ -348,11 +340,6 @@ if st.session_state.view == 'HOME':
                 
     with col4:
         st.subheader("Por Telefone / E-mail")
-        if st.session_state.use_bigquery_for_contacts:
-            st.caption("☁️ *Motor ativo: Google BigQuery (busca na nuvem)*")
-        elif api_client.is_public_api():
-            st.warning("⚠️ *A API pública (api.cnpj.pw) não suporta busca reversa por contato. Ative o BigQuery na barra lateral ou use a API Local.*")
-            
         tipo_contato = st.selectbox("Buscar por", ["Telefone", "Email"])
         if tipo_contato == "Telefone":
             telefone_input = st.text_input("Digite o DDD + Telefone (ex: 11999999999)")
@@ -668,6 +655,15 @@ elif st.session_state.view == 'DETAILS':
                     st.query_params.clear()
                     executar_expansao_entidade(q_type, q_val, q_lbl)
                     st.rerun()
+
+                # Verifica se veio requisição de exclusão de nó pela URL (ao clicar no botão ✕ sobre o nó)
+                if "exclude_node" in st.query_params:
+                    q_node = st.query_params.get("exclude_node")
+                    st.query_params.clear()
+                    if q_node:
+                        st.session_state.graph_excluded_nodes.add(q_node)
+                        st.toast(f"✕ Entidade removida da rede.")
+                        st.rerun()
 
                 st.write("### 🕸️ Grafo Interativo de Relacionamentos")
                 st.caption(
