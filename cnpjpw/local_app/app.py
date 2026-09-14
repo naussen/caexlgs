@@ -99,6 +99,91 @@ if 'enable_family_detection' not in st.session_state:
 if 'enable_ubo_detection' not in st.session_state:
     st.session_state.enable_ubo_detection = True
 
+def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = ""):
+    """Executa a expansão pontual de uma entidade específica (Pessoa Física, Jurídica, Telefone, E-mail)."""
+    ent_type = (ent_type or '').upper()
+    if ent_type in ("EMPRESA", "EMPRESA_ROOT"):
+        cnpj_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
+        if cnpj_limpo:
+            if cnpj_limpo not in st.session_state.multi_expanded_companies:
+                with st.spinner(f"Consultando dados e conexões da empresa {ent_label or cnpj_limpo}..."):
+                    emp_dados = api_client.get_cnpj(cnpj_limpo)
+                    if emp_dados and not emp_dados.get('erro'):
+                        st.session_state.multi_expanded_companies[cnpj_limpo] = emp_dados
+                        st.toast(f"✅ Relações de {emp_dados.get('nome_empresarial') or cnpj_limpo} expandidas com sucesso!")
+                    else:
+                        st.warning(f"Não foi possível obter dados para o CNPJ {cnpj_limpo}.")
+            else:
+                st.info("As conexões desta empresa já estão expandidas na rede.")
+    elif ent_type in ("SOCIO", "UBO"):
+        socio_nome = str(ent_val or '').strip()
+        if socio_nome:
+            if socio_nome not in st.session_state.multi_expanded_socios or not st.session_state.multi_expanded_socios.get(socio_nome):
+                with st.spinner(f"Buscando empresas vinculadas ao sócio {socio_nome}..."):
+                    res_soc = api_client.buscar_empresas_do_socio(socio_nome)
+                    if res_soc:
+                        st.session_state.multi_expanded_socios[socio_nome] = res_soc
+                        st.toast(f"✅ {len(res_soc)} empresa(s) do sócio {socio_nome} adicionada(s) à rede!")
+                    else:
+                        st.warning(f"Nenhuma outra empresa encontrada para o sócio {socio_nome}.")
+            else:
+                st.info("As empresas deste sócio já estão expandidas na rede.")
+    elif ent_type == "TELEFONE":
+        fone_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
+        if len(fone_limpo) >= 8:
+            if fone_limpo not in st.session_state.multi_expanded_phones or not st.session_state.multi_expanded_phones.get(fone_limpo):
+                if len(fone_limpo) in (10, 11):
+                    ddd = fone_limpo[:2]
+                    num = fone_limpo[2:]
+                else:
+                    ddd = "11"
+                    num = fone_limpo
+                with st.spinner(f"Buscando empresas com telefone ({ddd}) {num}..."):
+                    res_tel = api_client.buscar_telefone(ddd, num)
+                    if res_tel:
+                        st.session_state.multi_expanded_phones[fone_limpo] = res_tel
+                        st.toast(f"✅ {len(res_tel)} empresa(s) com telefone ({ddd}) {num} adicionada(s)!")
+                    else:
+                        st.warning(f"Nenhuma outra empresa encontrada com telefone ({ddd}) {num}.")
+            else:
+                st.info("As empresas deste telefone já estão expandidas na rede.")
+    elif ent_type == "EMAIL":
+        em_limpo = str(ent_val or '').strip().lower()
+        if em_limpo:
+            if em_limpo not in st.session_state.multi_expanded_emails or not st.session_state.multi_expanded_emails.get(em_limpo):
+                with st.spinner(f"Buscando empresas com e-mail {em_limpo}..."):
+                    res_em = api_client.buscar_email(em_limpo)
+                    if res_em:
+                        st.session_state.multi_expanded_emails[em_limpo] = res_em
+                        st.toast(f"✅ {len(res_em)} empresa(s) com e-mail {em_limpo} adicionada(s)!")
+                    else:
+                        st.warning(f"Nenhuma outra empresa encontrada com e-mail {em_limpo}.")
+            else:
+                st.info("As empresas deste e-mail já estão expandidas na rede.")
+
+# Processa requisições de expansão ou exclusão vindas do grafo ou URL direta
+_q_exp_type = st.query_params.get("expand_type")
+_q_exp_val = st.query_params.get("expand_val")
+_q_exp_lbl = st.query_params.get("expand_label", _q_exp_val)
+_q_del_node = st.query_params.get("exclude_node")
+
+if _q_exp_type and _q_exp_val:
+    executar_expansao_entidade(_q_exp_type, _q_exp_val, _q_exp_lbl)
+    st.session_state.view = 'DETAILS'
+    if "expand_type" in st.query_params:
+        del st.query_params["expand_type"]
+    if "expand_val" in st.query_params:
+        del st.query_params["expand_val"]
+    if "expand_label" in st.query_params:
+        del st.query_params["expand_label"]
+
+if _q_del_node:
+    st.session_state.graph_excluded_nodes.add(_q_del_node)
+    st.session_state.view = 'DETAILS'
+    st.toast("✕ Entidade removida da rede.")
+    if "exclude_node" in st.query_params:
+        del st.query_params["exclude_node"]
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def obter_cnae_completo(cnae_cod: str, cnae_desc: str = ""):
     """
@@ -595,81 +680,11 @@ elif st.session_state.view == 'DETAILS':
                     st.write("Atividade econômica não informada.")
 
             with tab_grafo:
-                # Função para executar expansão de qualquer entidade (Pessoa Física, Jurídica, Telefone, E-mail)
-                def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = ""):
-                    if ent_type in ("EMPRESA", "EMPRESA_ROOT"):
-                        cnpj_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
-                        if cnpj_limpo:
-                            if cnpj_limpo not in st.session_state.multi_expanded_companies:
-                                with st.spinner(f"Consultando dados e conexões da empresa {ent_label or cnpj_limpo}..."):
-                                    emp_dados = api_client.get_cnpj(cnpj_limpo)
-                                    if emp_dados and not emp_dados.get('erro'):
-                                        st.session_state.multi_expanded_companies[cnpj_limpo] = emp_dados
-                                        st.toast(f"✅ Relações de {emp_dados.get('nome_empresarial') or cnpj_limpo} expandidas com sucesso!")
-                                    else:
-                                        st.warning(f"Não foi possível obter dados para o CNPJ {cnpj_limpo}.")
-                            else:
-                                st.info("As conexões desta empresa já estão expandidas na rede.")
-                    elif ent_type in ("SOCIO", "UBO"):
-                        socio_nome = str(ent_val or '').strip()
-                        if socio_nome:
-                            if socio_nome not in st.session_state.multi_expanded_socios:
-                                with st.spinner(f"Buscando empresas vinculadas ao sócio {socio_nome}..."):
-                                    res_soc = api_client.buscar_empresas_do_socio(socio_nome)
-                                    st.session_state.multi_expanded_socios[socio_nome] = res_soc or []
-                                    st.toast(f"✅ {len(res_soc or [])} empresa(s) do sócio {socio_nome} adicionada(s) à rede!")
-                            else:
-                                st.info("As empresas deste sócio já estão expandidas na rede.")
-                    elif ent_type == "TELEFONE":
-                        fone_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
-                        if len(fone_limpo) >= 8:
-                            if fone_limpo not in st.session_state.multi_expanded_phones:
-                                if len(fone_limpo) in (10, 11):
-                                    ddd = fone_limpo[:2]
-                                    num = fone_limpo[2:]
-                                else:
-                                    ddd = str(dados.get('ddd1') or dados.get('ddd_1') or '11')
-                                    num = fone_limpo
-                                with st.spinner(f"Buscando empresas com telefone ({ddd}) {num}..."):
-                                    res_tel = api_client.buscar_telefone(ddd, num)
-                                    st.session_state.multi_expanded_phones[fone_limpo] = res_tel or []
-                                    st.toast(f"✅ {len(res_tel or [])} empresa(s) com telefone ({ddd}) {num} adicionada(s)!")
-                            else:
-                                st.info("As empresas deste telefone já estão expandidas na rede.")
-                    elif ent_type == "EMAIL":
-                        em_limpo = str(ent_val or '').strip().lower()
-                        if em_limpo:
-                            if em_limpo not in st.session_state.multi_expanded_emails:
-                                with st.spinner(f"Buscando empresas com e-mail {em_limpo}..."):
-                                    res_em = api_client.buscar_email(em_limpo)
-                                    st.session_state.multi_expanded_emails[em_limpo] = res_em or []
-                                    st.toast(f"✅ {len(res_em or [])} empresa(s) com e-mail {em_limpo} adicionada(s)!")
-                            else:
-                                st.info("As empresas deste e-mail já estão expandidas na rede.")
-
-                # Verifica se veio requisição de expansão pela URL (ao clicar no botão ✚ sobre o nó)
-                if "expand_type" in st.query_params and "expand_val" in st.query_params:
-                    q_type = st.query_params.get("expand_type")
-                    q_val = st.query_params.get("expand_val")
-                    q_lbl = st.query_params.get("expand_label", q_val)
-                    st.query_params.clear()
-                    executar_expansao_entidade(q_type, q_val, q_lbl)
-                    st.rerun()
-
-                # Verifica se veio requisição de exclusão de nó pela URL (ao clicar no botão ✕ sobre o nó)
-                if "exclude_node" in st.query_params:
-                    q_node = st.query_params.get("exclude_node")
-                    st.query_params.clear()
-                    if q_node:
-                        st.session_state.graph_excluded_nodes.add(q_node)
-                        st.toast(f"✕ Entidade removida da rede.")
-                        st.rerun()
-
                 st.write("### 🕸️ Grafo Interativo de Relacionamentos")
                 st.caption(
                     "Todos os controles, expansões e filtros estão integrados diretamente na barra superior da janela do grafo. "
                     "Arraste entidades livremente para organizar (elas ficam onde você soltar sem voltar), passe o mouse para ver ações (botão **✚** para expandir, **✕** para excluir), "
-                    "ou dê um duplo-clique no nó."
+                    "ou utilize o seletor rápido abaixo."
                 )
 
                 # Expansão sob demanda: Sócios (acionada via toolbar do grafo)
@@ -794,6 +809,36 @@ elif st.session_state.view == 'DETAILS':
                     false_positive_accountants=st.session_state.graph_false_positive_accountants,
                     manual_accountants=st.session_state.graph_manual_accountants
                 )
+
+                # Seletor Pontual de Expansão / Exclusão de Entidades
+                opcoes_nos = {
+                    n["id"]: f"{'👤' if n['type'] in ('SOCIO','UBO') else '🏢' if 'EMPRESA' in n['type'] else '📞' if n['type']=='TELEFONE' else '✉️' if n['type']=='EMAIL' else '📌'} {n['label']} ({n['type']})"
+                    for n in (nos_atuais or [])
+                    if n["id"] not in st.session_state.graph_excluded_nodes
+                }
+                if opcoes_nos:
+                    c_sel_ent, c_act_exp, c_act_del = st.columns([3.2, 1.2, 0.9])
+                    with c_sel_ent:
+                        sel_node_id = st.selectbox(
+                            "🎯 Entidade Selecionada para Expansão:",
+                            options=list(opcoes_nos.keys()),
+                            format_func=lambda nid: opcoes_nos.get(nid, nid),
+                            key="sel_node_action_box",
+                            label_visibility="collapsed"
+                        )
+                    with c_act_exp:
+                        if st.button("✚ Expandir Nó", key="btn_act_expand_node", use_container_width=True, help="Busca e adiciona à rede todas as empresas e conexões vinculadas a esta entidade"):
+                            target_n = next((n for n in nos_atuais if n["id"] == sel_node_id), None)
+                            if target_n:
+                                executar_expansao_entidade(target_n["type"], target_n["val"], target_n["label"])
+                                st.rerun()
+                    with c_act_del:
+                        if st.button("✕ Remover Nó", key="btn_act_del_node", use_container_width=True, help="Remove temporariamente esta entidade do grafo"):
+                            if sel_node_id:
+                                st.session_state.graph_excluded_nodes.add(sel_node_id)
+                                st.toast("✕ Entidade removida do grafo.")
+                                st.rerun()
+
                 components.html(html_code, height=870, scrolling=False)
 
                 st.divider()

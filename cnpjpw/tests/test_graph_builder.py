@@ -165,5 +165,29 @@ class TestGraphBuilder(unittest.TestCase):
         self.assertIn("Nenhum dado cadastral disponível para gerar o grafo", html_code)
         self.assertEqual(len(available), 0)
 
+    def test_expand_node_html_elements(self):
+        """Verifica se os botões de ação (+ e X) e o root_cnpj são injetados no HTML standalone."""
+        html_code, available = build_graph_html(root_data=self.sample_company)
+        self.assertIn('var rootCnpj = "12345678000190";', html_code)
+        self.assertIn('node-actions-menu', html_code)
+        self.assertIn('btn-node-expand', html_code)
+        self.assertIn('btn-node-delete', html_code)
+        self.assertIn('triggerExpand(nodeId)', html_code)
+        self.assertIn('triggerDelete(nodeId)', html_code)
+        self.assertIn("searchParams.set('cnpj', rootCnpj)", html_code)
+        self.assertIn("searchParams.set('expand_type', nType)", html_code)
+
+    def test_api_client_resilient_fallback(self):
+        """Valida que o api_client opera com fallback automático e não falha silenciosamente."""
+        from cnpjpw.local_app import api_client
+        # Mesmo com ENGINE_MODE = 'BIGQUERY', deve identificar que não há credenciais e não levantar exceção
+        api_client.set_engine_mode("BIGQUERY")
+        self.assertFalse(api_client.is_bigquery_available())
+        self.assertFalse(api_client.is_bigquery_mode())
+
+        # Modo AUTO
+        api_client.set_engine_mode("AUTO")
+        self.assertFalse(api_client.is_bigquery_mode())
+
 if __name__ == "__main__":
     unittest.main()

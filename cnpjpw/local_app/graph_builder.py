@@ -769,6 +769,7 @@ def build_graph_html(
 
     num_nos = len(nodes_list)
     num_arestas = len(edges_list)
+    root_cnpj = str(root_data.get('cnpj') or root_data.get('cnpj_basico') or '')
 
     html_template = f"""
     <!DOCTYPE html>
@@ -974,6 +975,7 @@ def build_graph_html(
           }}
         }});
 
+        var rootCnpj = "{root_cnpj}";
         var actionMenu = document.getElementById('node-actions-menu');
         var btnExpand = document.getElementById('btn-node-expand');
         var btnDelete = document.getElementById('btn-node-delete');
@@ -1055,19 +1057,26 @@ def build_graph_html(
           if (actionMenu) actionMenu.style.display = 'none';
           activeTargetNode = null;
 
+          var searchParams = new URLSearchParams();
+          if (rootCnpj) searchParams.set('cnpj', rootCnpj);
+          searchParams.set('expand_type', nType);
+          searchParams.set('expand_val', nVal);
+          searchParams.set('expand_label', nLbl);
+          var queryString = '?' + searchParams.toString();
+
           try {{
-            var url = new URL(window.parent.location.href);
-            url.searchParams.set('expand_type', nType);
-            url.searchParams.set('expand_val', nVal);
-            url.searchParams.set('expand_label', nLbl);
-            window.parent.location.href = url.toString();
-          }} catch(err) {{
-            try {{
-              window.top.location.search = '?expand_type=' + encodeURIComponent(nType) + '&expand_val=' + encodeURIComponent(nVal) + '&expand_label=' + encodeURIComponent(nLbl);
-            }} catch(err2) {{
-              console.warn("Navegação top:", err2);
+            if (window.top && window.top.location) {{
+              window.top.location.search = queryString;
+              return;
             }}
-          }}
+          }} catch(err) {{}}
+          try {{
+            if (window.parent && window.parent.location) {{
+              window.parent.location.search = queryString;
+              return;
+            }}
+          }} catch(err2) {{}}
+          window.location.search = queryString;
         }}
 
         function triggerDelete(nodeId) {{
@@ -1077,17 +1086,24 @@ def build_graph_html(
           activeTargetNode = null;
           autoCenter(100);
 
+          var searchParams = new URLSearchParams();
+          if (rootCnpj) searchParams.set('cnpj', rootCnpj);
+          searchParams.set('exclude_node', nodeId);
+          var queryString = '?' + searchParams.toString();
+
           try {{
-            var url = new URL(window.parent.location.href);
-            url.searchParams.set('exclude_node', nodeId);
-            window.parent.location.href = url.toString();
-          }} catch(err) {{
-            try {{
-              window.top.location.search = '?exclude_node=' + encodeURIComponent(nodeId);
-            }} catch(err2) {{
-              console.warn("Navegação top:", err2);
+            if (window.top && window.top.location) {{
+              window.top.location.search = queryString;
+              return;
             }}
-          }}
+          }} catch(err) {{}}
+          try {{
+            if (window.parent && window.parent.location) {{
+              window.parent.location.search = queryString;
+              return;
+            }}
+          }} catch(err2) {{}}
+          window.location.search = queryString;
         }}
 
         if (btnExpand) {{

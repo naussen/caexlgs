@@ -1,7 +1,11 @@
 import os
 import requests
 import urllib3
-import bigquery_client
+
+try:
+    import bigquery_client
+except ImportError:
+    from cnpjpw.local_app import bigquery_client
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -9,7 +13,7 @@ DEFAULT_PUBLIC_URL = "https://api.cnpj.pw"
 DEFAULT_LOCAL_URL = "http://localhost:8000"
 
 BASE_URL = os.getenv("CNPJ_API_URL", DEFAULT_PUBLIC_URL).rstrip("/")
-ENGINE_MODE = "BIGQUERY"  # "BIGQUERY" (Sigilo Total / 100% Independente) ou "API" (HTTP)
+ENGINE_MODE = "AUTO"  # "AUTO", "BIGQUERY" ou "API"
 _last_error = None
 
 def get_engine_mode() -> str:
@@ -20,8 +24,24 @@ def set_engine_mode(mode: str):
     global ENGINE_MODE
     ENGINE_MODE = mode
 
+def is_bigquery_available() -> bool:
+    """Verifica se o SDK do BigQuery e credenciais válidas estão configurados."""
+    if not getattr(bigquery_client, "HAS_BIGQUERY", False):
+        return False
+    cred_path = bigquery_client.get_credentials_path()
+    has_creds = bool(
+        (cred_path and os.path.exists(cred_path))
+        or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        or os.getenv("GCP_SERVICE_ACCOUNT_JSON")
+    )
+    return has_creds
+
 def is_bigquery_mode() -> bool:
-    return ENGINE_MODE == "BIGQUERY"
+    if ENGINE_MODE == "API":
+        return False
+    if ENGINE_MODE == "BIGQUERY":
+        return is_bigquery_available()
+    return is_bigquery_available()
 
 def get_base_url() -> str:
     global BASE_URL
@@ -52,7 +72,12 @@ def get_cnpj(cnpj: str):
     _last_error = None
 
     if is_bigquery_mode():
-        return bigquery_client.get_cnpj(cnpj)
+        try:
+            res = bigquery_client.get_cnpj(cnpj)
+            if res and not res.get('erro'):
+                return res
+        except Exception as e:
+            _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
     try:
         res = requests.get(f"{BASE_URL}/cnpj/{cnpj}", verify=False, timeout=15)
@@ -73,7 +98,12 @@ def buscar_razao_social(razao: str):
     _last_error = None
 
     if is_bigquery_mode():
-        return bigquery_client.buscar_razao_social(razao)
+        try:
+            res = bigquery_client.buscar_razao_social(razao)
+            if res:
+                return res
+        except Exception as e:
+            _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
     try:
         res = requests.get(f"{BASE_URL}/razao_social/{razao}", verify=False, timeout=15)
@@ -92,7 +122,12 @@ def buscar_socio(doc: str):
     _last_error = None
 
     if is_bigquery_mode():
-        return bigquery_client.buscar_empresas_do_socio("", doc_socio=doc)
+        try:
+            res = bigquery_client.buscar_empresas_do_socio("", doc_socio=doc)
+            if res:
+                return res
+        except Exception as e:
+            _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
     try:
         res = requests.get(f"{BASE_URL}/socio/{doc}", verify=False, timeout=15)
@@ -112,7 +147,12 @@ def buscar_empresas_do_socio(nome: str, doc: str = None):
     _last_error = None
 
     if is_bigquery_mode():
-        return bigquery_client.buscar_empresas_do_socio(nome, doc_socio=doc)
+        try:
+            res = bigquery_client.buscar_empresas_do_socio(nome, doc_socio=doc)
+            if res:
+                return res
+        except Exception as e:
+            _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
     params = {}
     if nome:
@@ -123,14 +163,19 @@ def buscar_empresas_do_socio(nome: str, doc: str = None):
     resultados = busca_difusa(params)
     if not resultados and doc and not doc.startswith("***"):
         resultados = buscar_socio(doc.strip())
-    return resultados
+    return resultados or []
 
 def buscar_telefone(ddd: str, telefone: str):
     global _last_error
     _last_error = None
 
     if is_bigquery_mode():
-        return bigquery_client.buscar_telefone(ddd, telefone)
+        try:
+            res = bigquery_client.buscar_telefone(ddd, telefone)
+            if res:
+                return res
+        except Exception as e:
+            _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
     try:
         res = requests.get(f"{BASE_URL}/telefone/{ddd}/{telefone}", verify=False, timeout=15)
@@ -138,8 +183,7 @@ def buscar_telefone(ddd: str, telefone: str):
             return res.json().get('resultados_paginacao', [])
         elif res.status_code == 404 and is_public_api():
             _last_error = (
-                "A API pública ('api.cnpj.pw') não possui suporte a buscas reversas por telefone (retornou HTTP 404). "
-                "Para utilizar esta funcionalidade, utilize o modo 'Google BigQuery (Sigilo Total)' na barra lateral."
+                "A API pública ('api.cnpj.pw') não possui suporte a buscas reversas por telefone (retornou HTTP 404)."
             )
         else:
             _last_error = f"Erro na busca por telefone ({res.status_code}): {res.text}"
@@ -154,7 +198,12 @@ def buscar_email(email: str):
     _last_error = None
 
     if is_bigquery_mode():
-        return bigquery_client.buscar_email(email)
+        try:
+            res = bigquery_client.buscar_email(email)
+            if res:
+                return res
+        except Exception as e:
+            _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
     try:
         res = requests.get(f"{BASE_URL}/email/{email}", verify=False, timeout=15)
@@ -162,8 +211,7 @@ def buscar_email(email: str):
             return res.json().get('resultados_paginacao', [])
         elif res.status_code == 404 and is_public_api():
             _last_error = (
-                "A API pública ('api.cnpj.pw') não possui suporte a buscas reversas por e-mail (retornou HTTP 404). "
-                "Para utilizar esta funcionalidade, utilize o modo 'Google BigQuery (Sigilo Total)' na barra lateral."
+                "A API pública ('api.cnpj.pw') não possui suporte a buscas reversas por e-mail (retornou HTTP 404)."
             )
         else:
             _last_error = f"Erro na busca por e-mail ({res.status_code}): {res.text}"
@@ -178,14 +226,18 @@ def busca_difusa(params: dict):
     _last_error = None
 
     if is_bigquery_mode():
-        # No BigQuery, busca pelo nome do sócio ou documento se fornecido
         socio_nome = params.get('socio_nome')
         socio_doc = params.get('socio_doc')
-        return bigquery_client.buscar_empresas_do_socio(socio_nome or "", doc_socio=socio_doc)
+        try:
+            res = bigquery_client.buscar_empresas_do_socio(socio_nome or "", doc_socio=socio_doc)
+            if res:
+                return res
+        except Exception as e:
+            _last_error = f"BigQuery falhou ({str(e)}), utilizando fallback HTTP API..."
 
-    params = {k: v for k, v in params.items() if v is not None and v != ""}
+    params_clean = {k: v for k, v in params.items() if v is not None and v != ""}
     try:
-        res = requests.get(f"{BASE_URL}/busca_difusa/", params=params, verify=False, timeout=20)
+        res = requests.get(f"{BASE_URL}/busca_difusa/", params=params_clean, verify=False, timeout=20)
         if res.status_code == 200:
             return res.json().get('resultados_paginacao', [])
         else:
@@ -195,3 +247,4 @@ def busca_difusa(params: dict):
     except Exception as e:
         _last_error = f"Erro na requisição: {str(e)}"
     return []
+
