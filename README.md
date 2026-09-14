@@ -34,8 +34,9 @@ Plataforma avançada para **consulta de dados abertos da Receita Federal**, rast
 
 ## 🚀 Como Começar
 
-### 📖 Guia de Instalação Passo a Passo para Leigos:
-👉 **Consulte o [GUIA_INSTALACAO.md](GUIA_INSTALACAO.md)** para um passo a passo detalhado e ilustrado, ideal para quem nunca mexeu com Python ou linha de comando.
+### 📖 Guias & Documentação:
+* 👉 **[DOCUMENTACAO_APP.md](DOCUMENTACAO_APP.md)** — **Documentação Técnica Completa**: Arquitetura, fluxo de dados, grafo Vis.js, motores de inteligência, UBO e suíte de testes.
+* 👉 **[GUIA_INSTALACAO.md](GUIA_INSTALACAO.md)** — **Guia de Instalação Passo a Passo**: Ideal para quem nunca mexeu com Python ou linha de comando.
 
 ---
 
