@@ -102,8 +102,20 @@ if 'enable_ubo_detection' not in st.session_state:
 def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = ""):
     """Executa a expansão pontual de uma entidade específica (Pessoa Física, Jurídica, Telefone, E-mail)."""
     ent_type = (ent_type or '').upper()
-    if ent_type in ("EMPRESA", "EMPRESA_ROOT"):
-        cnpj_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
+    val_str = str(ent_val or '').strip()
+
+    # Sanitização defensiva contra prefixos de node IDs
+    if val_str.lower().startswith("socio_"):
+        val_str = val_str[6:].strip()
+    elif val_str.lower().startswith("cnpj_"):
+        val_str = val_str[5:].strip()
+    elif val_str.lower().startswith("email_"):
+        val_str = val_str[6:].strip()
+    elif val_str.lower().startswith("tel_"):
+        val_str = val_str[4:].strip()
+
+    if ent_type in ("EMPRESA", "EMPRESA_ROOT") or (val_str.isdigit() and len(val_str) in (8, 14)):
+        cnpj_limpo = "".join(filter(str.isdigit, val_str))
         if cnpj_limpo:
             if cnpj_limpo not in st.session_state.multi_expanded_companies:
                 with st.spinner(f"Consultando dados e conexões da empresa {ent_label or cnpj_limpo}..."):
@@ -116,7 +128,7 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "")
             else:
                 st.info("As conexões desta empresa já estão expandidas na rede.")
     elif ent_type in ("SOCIO", "UBO"):
-        socio_nome = str(ent_val or '').strip()
+        socio_nome = val_str.upper()
         if socio_nome:
             if socio_nome not in st.session_state.multi_expanded_socios or not st.session_state.multi_expanded_socios.get(socio_nome):
                 with st.spinner(f"Buscando empresas vinculadas ao sócio {socio_nome}..."):
@@ -129,7 +141,7 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "")
             else:
                 st.info("As empresas deste sócio já estão expandidas na rede.")
     elif ent_type == "TELEFONE":
-        fone_limpo = "".join(filter(str.isdigit, str(ent_val or '')))
+        fone_limpo = "".join(filter(str.isdigit, val_str))
         if len(fone_limpo) >= 8:
             if fone_limpo not in st.session_state.multi_expanded_phones or not st.session_state.multi_expanded_phones.get(fone_limpo):
                 if len(fone_limpo) in (10, 11):
@@ -148,7 +160,7 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "")
             else:
                 st.info("As empresas deste telefone já estão expandidas na rede.")
     elif ent_type == "EMAIL":
-        em_limpo = str(ent_val or '').strip().lower()
+        em_limpo = val_str.lower()
         if em_limpo:
             if em_limpo not in st.session_state.multi_expanded_emails or not st.session_state.multi_expanded_emails.get(em_limpo):
                 with st.spinner(f"Buscando empresas com e-mail {em_limpo}..."):
@@ -558,7 +570,7 @@ elif st.session_state.view == 'DETAILS':
             with col_newtab:
                 st.link_button("↗️ Abrir em Nova Aba", f"?cnpj={cnpj}", help="Abre esta empresa em uma nova aba independente do navegador")
             
-            tab_ficha, tab_grafo = st.tabs(["📄 Ficha Cadastral", "🕸️ Grafo de Relacionamentos"])
+            tab_grafo, tab_ficha = st.tabs(["🕸️ Grafo de Relacionamentos", "📄 Ficha Cadastral"])
 
             with tab_ficha:
                 # Contatos com botões de busca vinculada
@@ -680,6 +692,38 @@ elif st.session_state.view == 'DETAILS':
                     st.write("Atividade econômica não informada.")
 
             with tab_grafo:
+                st.html("""
+                    <style>
+                    div[data-testid="stTextInput"]:has(input[aria-label="Graph Bridge Receiver"]) {
+                        display: none !important;
+                        height: 0px !important;
+                        margin: 0px !important;
+                        padding: 0px !important;
+                    }
+                    </style>
+                """)
+                graph_bridge_val = st.text_input(
+                    "Graph Bridge Receiver",
+                    key="graph_bridge_receiver",
+                    label_visibility="collapsed"
+                )
+                if graph_bridge_val:
+                    try:
+                        b_data = json.loads(graph_bridge_val)
+                        b_act = b_data.get("action")
+                        b_type = b_data.get("type")
+                        b_val = b_data.get("val")
+                        b_lbl = b_data.get("label", b_val)
+                        if b_act == "expand":
+                            executar_expansao_entidade(b_type, b_val, b_lbl)
+                        elif b_act == "delete":
+                            st.session_state.graph_excluded_nodes.add(b_val)
+                            st.toast("✕ Entidade removida da rede.")
+                    except Exception:
+                        pass
+                    st.session_state.graph_bridge_receiver = ""
+                    st.rerun()
+
                 st.write("### 🕸️ Grafo Interativo de Relacionamentos")
                 st.caption(
                     "Todos os controles, expansões e filtros estão integrados diretamente na barra superior da janela do grafo. "

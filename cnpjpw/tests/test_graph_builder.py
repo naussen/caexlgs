@@ -172,6 +172,8 @@ class TestGraphBuilder(unittest.TestCase):
         self.assertIn('node-actions-menu', html_code)
         self.assertIn('btn-node-expand', html_code)
         self.assertIn('btn-node-delete', html_code)
+        self.assertIn('data-target-node', html_code)
+        self.assertIn('Graph Bridge Receiver', html_code)
         self.assertIn('triggerExpand(nodeId)', html_code)
         self.assertIn('triggerDelete(nodeId)', html_code)
         self.assertIn("searchParams.set('cnpj', rootCnpj)", html_code)

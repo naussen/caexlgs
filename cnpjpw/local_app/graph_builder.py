@@ -992,6 +992,10 @@ def build_graph_html(
             actionMenu.style.top = (domPos.y - 36) + 'px';
             actionMenu.style.display = 'flex';
 
+            actionMenu.setAttribute('data-target-node', nodeId);
+            if (btnExpand) btnExpand.setAttribute('data-target-node', nodeId);
+            if (btnDelete) btnDelete.setAttribute('data-target-node', nodeId);
+
             var nodeObj = nodes.get(nodeId);
             if (nodeObj && (nodeObj._type === 'EMPRESA_ROOT' || (String(nodeId).indexOf('cnpj_') === 0 && nodeObj._type === 'EMPRESA_ROOT'))) {{
               btnDelete.style.display = 'none';
@@ -1009,13 +1013,21 @@ def build_graph_html(
           updateActionMenuPosition(params.node);
         }});
 
+        network.on('click', function(params) {{
+          if (params.nodes && params.nodes.length > 0) {{
+            clearTimeout(hideTimeout);
+            activeTargetNode = params.nodes[0];
+            updateActionMenuPosition(params.nodes[0]);
+          }}
+        }});
+
         network.on('blurNode', function() {{
           hideTimeout = setTimeout(function() {{
             if (!isMouseOverMenu && actionMenu) {{
               actionMenu.style.display = 'none';
               activeTargetNode = null;
             }}
-          }}, 350);
+          }}, 600);
         }});
 
         if (actionMenu) {{
@@ -1057,6 +1069,37 @@ def build_graph_html(
           if (actionMenu) actionMenu.style.display = 'none';
           activeTargetNode = null;
 
+          var payload = JSON.stringify({{
+            action: 'expand',
+            type: nType,
+            val: nVal,
+            label: nLbl,
+            t: Date.now()
+          }});
+
+          // 1. Tenta acionar via DOM Bridge direta com o Streamlit no parent (zero recarregamento)
+          try {{
+            var pDoc = window.parent.document;
+            if (pDoc) {{
+              var inputs = pDoc.querySelectorAll('input');
+              for (var i = 0; i < inputs.length; i++) {{
+                if (inputs[i].getAttribute('aria-label') === 'Graph Bridge Receiver' ||
+                    (inputs[i].id && inputs[i].id.indexOf('graph_bridge_receiver') !== -1)) {{
+                  var nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+                  nativeSetter.call(inputs[i], payload);
+                  inputs[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
+                  inputs[i].dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }}));
+                  inputs[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
+                  inputs[i].dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                  return;
+                }}
+              }}
+            }}
+          }} catch(errBridge) {{
+            console.warn("DOM Bridge failed:", errBridge);
+          }}
+
+          // 2. Fallback por URL caso a bridge DOM seja restrita
           var searchParams = new URLSearchParams();
           if (rootCnpj) searchParams.set('cnpj', rootCnpj);
           searchParams.set('expand_type', nType);
@@ -1065,18 +1108,12 @@ def build_graph_html(
           var queryString = '?' + searchParams.toString();
 
           try {{
-            if (window.top && window.top.location) {{
-              window.top.location.search = queryString;
-              return;
-            }}
-          }} catch(err) {{}}
+            window.parent.location.href = window.parent.location.pathname + queryString;
+            return;
+          }} catch(errParent) {{}}
           try {{
-            if (window.parent && window.parent.location) {{
-              window.parent.location.search = queryString;
-              return;
-            }}
-          }} catch(err2) {{}}
-          window.location.search = queryString;
+            window.top.location.search = queryString;
+          }} catch(errTop) {{}}
         }}
 
         function triggerDelete(nodeId) {{
@@ -1086,37 +1123,66 @@ def build_graph_html(
           activeTargetNode = null;
           autoCenter(100);
 
+          var payload = JSON.stringify({{
+            action: 'delete',
+            type: 'DELETE',
+            val: nodeId,
+            label: nodeId,
+            t: Date.now()
+          }});
+
+          try {{
+            var pDoc = window.parent.document;
+            if (pDoc) {{
+              var inputs = pDoc.querySelectorAll('input');
+              for (var i = 0; i < inputs.length; i++) {{
+                if (inputs[i].getAttribute('aria-label') === 'Graph Bridge Receiver' ||
+                    (inputs[i].id && inputs[i].id.indexOf('graph_bridge_receiver') !== -1)) {{
+                  var nativeSetter = Object.getOwnPropertyDescriptor(window.parent.HTMLInputElement.prototype, 'value').set;
+                  nativeSetter.call(inputs[i], payload);
+                  inputs[i].dispatchEvent(new Event('input', {{ bubbles: true }}));
+                  inputs[i].dispatchEvent(new KeyboardEvent('keydown', {{ key: 'Enter', keyCode: 13, bubbles: true }}));
+                  inputs[i].dispatchEvent(new Event('change', {{ bubbles: true }}));
+                  inputs[i].dispatchEvent(new Event('blur', {{ bubbles: true }}));
+                  return;
+                }}
+              }}
+            }}
+          }} catch(errBridge) {{
+            console.warn("DOM Bridge failed:", errBridge);
+          }}
+
           var searchParams = new URLSearchParams();
           if (rootCnpj) searchParams.set('cnpj', rootCnpj);
           searchParams.set('exclude_node', nodeId);
           var queryString = '?' + searchParams.toString();
 
           try {{
-            if (window.top && window.top.location) {{
-              window.top.location.search = queryString;
-              return;
-            }}
-          }} catch(err) {{}}
+            window.parent.location.href = window.parent.location.pathname + queryString;
+            return;
+          }} catch(errParent) {{}}
           try {{
-            if (window.parent && window.parent.location) {{
-              window.parent.location.search = queryString;
-              return;
-            }}
-          }} catch(err2) {{}}
-          window.location.search = queryString;
+            window.top.location.search = queryString;
+          }} catch(errTop) {{}}
         }}
 
         if (btnExpand) {{
           btnExpand.addEventListener('click', function(e) {{
             e.stopPropagation();
-            if (activeTargetNode) triggerExpand(activeTargetNode);
+            var targetId = btnExpand.getAttribute('data-target-node') || 
+                           actionMenu.getAttribute('data-target-node') || 
+                           activeTargetNode;
+            if (targetId) triggerExpand(targetId);
           }});
         }}
 
         if (btnDelete) {{
           btnDelete.addEventListener('click', function(e) {{
             e.stopPropagation();
-            if (activeTargetNode) triggerDelete(activeTargetNode);
+            var targetId = btnDelete.getAttribute('data-target-node') || 
+                           actionMenu.getAttribute('data-target-node') || 
+                           activeTargetNode;
+            if (targetId) triggerDelete(targetId);
           }});
         }}
 
