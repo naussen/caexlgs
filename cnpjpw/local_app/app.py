@@ -702,27 +702,30 @@ elif st.session_state.view == 'DETAILS':
                     }
                     </style>
                 """)
-                graph_bridge_val = st.text_input(
+                def _handle_graph_bridge_event():
+                    raw_val = st.session_state.get("graph_bridge_receiver", "")
+                    if raw_val:
+                        try:
+                            b_data = json.loads(raw_val)
+                            b_act = b_data.get("action")
+                            b_type = b_data.get("type")
+                            b_val = b_data.get("val")
+                            b_lbl = b_data.get("label", b_val)
+                            if b_act == "expand":
+                                executar_expansao_entidade(b_type, b_val, b_lbl)
+                            elif b_act == "delete":
+                                st.session_state.graph_excluded_nodes.add(b_val)
+                                st.toast("✕ Entidade removida da rede.")
+                        except Exception:
+                            pass
+                        st.session_state["graph_bridge_receiver"] = ""
+
+                st.text_input(
                     "Graph Bridge Receiver",
                     key="graph_bridge_receiver",
-                    label_visibility="collapsed"
+                    label_visibility="collapsed",
+                    on_change=_handle_graph_bridge_event
                 )
-                if graph_bridge_val:
-                    try:
-                        b_data = json.loads(graph_bridge_val)
-                        b_act = b_data.get("action")
-                        b_type = b_data.get("type")
-                        b_val = b_data.get("val")
-                        b_lbl = b_data.get("label", b_val)
-                        if b_act == "expand":
-                            executar_expansao_entidade(b_type, b_val, b_lbl)
-                        elif b_act == "delete":
-                            st.session_state.graph_excluded_nodes.add(b_val)
-                            st.toast("✕ Entidade removida da rede.")
-                    except Exception:
-                        pass
-                    st.session_state.graph_bridge_receiver = ""
-                    st.rerun()
 
                 st.write("### 🕸️ Grafo Interativo de Relacionamentos")
                 st.caption(
