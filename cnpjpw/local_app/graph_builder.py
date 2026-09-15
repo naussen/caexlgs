@@ -651,6 +651,12 @@ def build_graph_elements(
         for je in judicial_edges:
             edges_list.append(je)
 
+    # Garante remoção automática de todas as arestas incidentes a nós excluídos ou inexistentes (Fase 7, Regra 7)
+    edges_list = [
+        e for e in edges_list
+        if e.get("from") in nodes_dict and e.get("to") in nodes_dict
+    ]
+
     nodes_list = list(nodes_dict.values())
     available_nodes = [
         {

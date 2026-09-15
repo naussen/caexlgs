@@ -834,6 +834,7 @@ elif st.session_state.view == 'DETAILS':
                         st.rerun()
 
                 # Seletor Pontual de Expansão / Exclusão de Entidades
+                cnpj_digits = "".join(filter(str.isdigit, str(cnpj or "")))
                 opcoes_nos = {
                     n["id"]: f"{'👤' if n['type'] in ('SOCIO','UBO') else '🏢' if 'EMPRESA' in n['type'] else '📞' if n['type']=='TELEFONE' else '✉️' if n['type']=='EMAIL' else '📌'} {n['label']} ({n['type']})"
                     for n in (nos_atuais or [])
@@ -843,7 +844,7 @@ elif st.session_state.view == 'DETAILS':
                     c_sel_ent, c_act_exp, c_act_del = st.columns([3.2, 1.2, 0.9])
                     with c_sel_ent:
                         sel_node_id = st.selectbox(
-                            "🎯 Entidade Selecionada para Expansão:",
+                            "🎯 Entidade Selecionada para Expansão / Exclusão:",
                             options=list(opcoes_nos.keys()),
                             format_func=lambda nid: opcoes_nos.get(nid, nid),
                             key="sel_node_action_box",
@@ -863,7 +864,15 @@ elif st.session_state.view == 'DETAILS':
                                 }, expand_fn=executar_expansao_entidade, root_id=cnpj)
                                 st.rerun()
                     with c_act_del:
-                        if st.button("✕ Remover Nó", key="btn_act_del_node", use_container_width=True, help="Remove temporariamente esta entidade do grafo"):
+                        is_sel_root = bool(
+                            sel_node_id and (
+                                sel_node_id == cnpj or
+                                sel_node_id == f"cnpj_{cnpj}" or
+                                (cnpj_digits and "".join(filter(str.isdigit, str(sel_node_id))) == cnpj_digits) or
+                                str(sel_node_id).lower() == "empresa_root"
+                            )
+                        )
+                        if st.button("✕ Remover Nó", key="btn_act_del_node", use_container_width=True, disabled=is_sel_root, help="Remove temporariamente esta entidade e suas arestas do grafo"):
                             target_n = next((n for n in nos_atuais if n["id"] == sel_node_id), None)
                             if sel_node_id:
                                 graph_dispatcher.handle_graph_action({
@@ -1084,10 +1093,16 @@ elif st.session_state.view == 'DETAILS':
                     st.write("#### 🚫 Gerenciar Exclusão de Nós (Contadores e Ruídos)")
                     col_ex1, col_ex2 = st.columns([3, 2])
                     with col_ex1:
+                        cnpj_digits = "".join(filter(str.isdigit, str(cnpj or "")))
                         opcoes_excluir = {
                             f"{n['label']} [{n['type']}]": n['id']
                             for n in (nos_atuais or [])
-                            if not n['id'].startswith('cnpj_' + str(cnpj))
+                            if not (
+                                n['type'] == 'EMPRESA_ROOT' or
+                                n['id'].startswith('cnpj_' + str(cnpj)) or
+                                (cnpj_digits and "".join(filter(str.isdigit, str(n['id']))) == cnpj_digits) or
+                                str(n['id']).lower() in ("empresa_root", "root")
+                            )
                         }
                         if opcoes_excluir:
                             selecionados = st.multiselect(
@@ -1097,7 +1112,7 @@ elif st.session_state.view == 'DETAILS':
                             )
                             if st.button("❌ Remover Nó(s) Selecionado(s)", disabled=not selecionados):
                                 for sel in selecionados:
-                                    st.session_state.graph_excluded_nodes.add(opcoes_excluir[sel])
+                                    graph_dispatcher.exclude_graph_node(opcoes_excluir[sel], label=sel, root_id=cnpj)
                                 st.rerun()
                         else:
                             st.info("Nenhum nó elegível para exclusão no momento.")
@@ -1111,10 +1126,10 @@ elif st.session_state.view == 'DETAILS':
                                     st.code(ex_id, language="text")
                                 with c_btn:
                                     if st.button("Restaurar", key=f"rst_{ex_id}"):
-                                        st.session_state.graph_excluded_nodes.remove(ex_id)
+                                        graph_dispatcher.restore_graph_node(ex_id)
                                         st.rerun()
                             if st.button("Restaurar Todos os Nós", key="rst_all_nodes"):
-                                st.session_state.graph_excluded_nodes = set()
+                                graph_dispatcher.restore_all_graph_nodes()
                                 st.rerun()
                         else:
                             st.caption("Nenhum nó foi excluído manualmente.")

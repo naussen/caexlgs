@@ -343,9 +343,27 @@
       }, delay);
     }
 
+    function isRootNode(nodeId, nodeObj) {
+      if (!nodeObj && nodesDataSet) nodeObj = nodesDataSet.get(nodeId);
+      if (!nodeObj) return false;
+      return (
+        nodeObj._type === 'EMPRESA_ROOT' ||
+        nodeObj._is_root === true ||
+        String(nodeId).toLowerCase() === 'empresa_root'
+      );
+    }
+
     function updateActionMenuPosition(nodeId) {
       if (!network) return;
       try {
+        const nodeObj = nodesDataSet ? nodesDataSet.get(nodeId) : null;
+        if (delBtn) {
+          if (isRootNode(nodeId, nodeObj)) {
+            delBtn.style.display = 'none';
+          } else {
+            delBtn.style.display = 'inline-block';
+          }
+        }
         const pos = network.getPosition(nodeId);
         const domPos = network.canvasToDOM(pos);
         actionMenu.style.left = (domPos.x - 26) + 'px';
@@ -377,7 +395,13 @@
     function deleteNode(nodeId) {
       if (!nodesDataSet) return;
       const nodeObj = nodesDataSet.get(nodeId);
-      nodesDataSet.remove(nodeId);
+      if (isRootNode(nodeId, nodeObj)) {
+        alert('A empresa raiz sob investigação não pode ser excluída do grafo.');
+        if (actionMenu) actionMenu.style.display = 'none';
+        activeTargetNode = null;
+        return;
+      }
+      // Delegação ao backend Python sem remoção prematura no DOM (Fase 7, Regra 6)
       sendValue({
         action: 'delete',
         node_id: String(nodeId),
@@ -389,7 +413,6 @@
       });
       if (actionMenu) actionMenu.style.display = 'none';
       activeTargetNode = null;
-      autoCenter(150);
     }
 
     function expandSelectedEntity() {

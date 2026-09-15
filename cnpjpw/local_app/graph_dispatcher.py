@@ -56,32 +56,73 @@ def validate_graph_event(event: Any) -> Tuple[bool, Optional[str]]:
 
 def exclude_graph_node(node_id: str, label: str = "", root_id: Optional[str] = None) -> bool:
     """
-    Executa a exclusão de um nó no grafo de forma consistente e segura.
-    Bloqueia a exclusão da empresa raiz em qualquer circunstância e persiste em st.session_state.
+    Executa a exclusão de um nó no grafo de forma consistente e segura (Fase 7).
+    Bloqueia a exclusão da empresa raiz em qualquer circunstância, valida o identificador
+    e persiste em st.session_state.graph_excluded_nodes.
     """
     if not node_id:
         return False
 
     node_str = str(node_id).strip()
+    if not node_str:
+        return False
 
     # Identifica o nó raiz atual da investigação
     current_root = root_id or st.session_state.get("current_cnpj") or st.session_state.get("selected_cnpj") or ""
     current_root_digits = "".join(filter(str.isdigit, str(current_root)))
 
-    # Bloqueia exclusão da raiz em qualquer variação de identificador
+    # Bloqueia exclusão da raiz em qualquer variação de identificador (limpo, com máscara, prefixo cnpj_, ou empresa_root)
+    node_digits = "".join(filter(str.isdigit, node_str))
     if current_root_digits:
         if (node_str == current_root_digits or 
+            (node_digits and node_digits == current_root_digits) or
             node_str == f"cnpj_{current_root_digits}" or 
-            node_str.lower() == "empresa_root"):
+            node_str.lower() in ("empresa_root", "root", f"cnpj_{current_root}")):
             st.warning("⚠️ A empresa raiz sob investigação não pode ser excluída do grafo.")
             return False
 
     if "graph_excluded_nodes" not in st.session_state:
-        st.session_state.graph_excluded_nodes = set()
+        st.session_state["graph_excluded_nodes"] = set()
+    elif not isinstance(st.session_state["graph_excluded_nodes"], set):
+        st.session_state["graph_excluded_nodes"] = set(st.session_state["graph_excluded_nodes"])
 
-    st.session_state.graph_excluded_nodes.add(node_str)
+    st.session_state["graph_excluded_nodes"].add(node_str)
     rotulo = label or node_str
     st.toast(f"✕ Entidade '{rotulo}' removida da rede.")
+    return True
+
+
+def restore_graph_node(node_id: str, label: str = "") -> bool:
+    """
+    Restaura um nó previamente excluído, permitindo sua recomposição e de suas arestas no próximo rerun.
+    """
+    if not node_id:
+        return False
+
+    node_str = str(node_id).strip()
+    if not node_str:
+        return False
+
+    if "graph_excluded_nodes" not in st.session_state:
+        st.session_state["graph_excluded_nodes"] = set()
+        return False
+    elif not isinstance(st.session_state["graph_excluded_nodes"], set):
+        st.session_state["graph_excluded_nodes"] = set(st.session_state["graph_excluded_nodes"])
+
+    if node_str in st.session_state["graph_excluded_nodes"]:
+        st.session_state["graph_excluded_nodes"].remove(node_str)
+        rotulo = label or node_str
+        st.toast(f"✓ Entidade '{rotulo}' restaurada no grafo.")
+        return True
+    return False
+
+
+def restore_all_graph_nodes() -> bool:
+    """
+    Restaura todos os nós excluídos no grafo.
+    """
+    st.session_state["graph_excluded_nodes"] = set()
+    st.toast("✓ Todos os nós excluídos foram restaurados.")
     return True
 
 def clear_graph_expansions():

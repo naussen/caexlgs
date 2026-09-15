@@ -373,7 +373,25 @@ Uma mesma consulta produz o mesmo resultado independentemente do botão que a in
 
 Os nomes dos botões correspondem exatamente ao alcance real da operação, e o usuário recebe um resumo verificável.
 
-### Fase 7 — Corrigir exclusão de entidades
+### Fase 7 — Corrigir exclusão de entidades [CONCLUÍDA]
+
+> **Status:** Concluída integralmente.
+> - Funções canônicas de exclusão e restauração padronizadas em `cnpjpw/local_app/graph_dispatcher.py`:
+>   - `exclude_graph_node(node_id, label, root_id)`: Valida identificadores nulos/vazios sem exceção, bloqueia exclusão da raiz sob qualquer formato (`11111111000111`, com máscara, `cnpj_...`, `EMPRESA_ROOT`, `root`), persiste em `st.session_state['graph_excluded_nodes']` e emite toast de confirmação.
+>   - `restore_graph_node(node_id, label)`: Remove o nó de `graph_excluded_nodes` e notifica via toast.
+>   - `restore_all_graph_nodes()`: Limpa o conjunto de exclusões restaurando o grafo completo.
+> - Proteção da raiz no frontend (`components/vis_graph/index.html`):
+>   - Oculta o botão `✕` no menu de ações flutuante quando o mouse está sobre o nó raiz.
+>   - Função `deleteNode(nodeId)` intercepta e impede envio de evento de exclusão para o nó raiz.
+>   - **Regra 6 cumprida:** Removida a deleção prematura no DOM (`nodesDataSet.remove(nodeId)`). A remoção ocorre exclusivamente via reconstrução pelo Python no rerun, eliminando dessincronia.
+> - Reconstrução de Arestas Incidentes (`graph_builder.py`):
+>   - **Regra 7 cumprida:** Pós-filtro estrito em `build_graph_elements` que expurga automaticamente qualquer aresta incidente a nós excluídos ou ausentes (incluindo manuais e judiciais).
+> - Painel `Gerenciar Exclusões` e Ações do Grafo (`app.py`):
+>   - Roteamento completo das exclusões e restaurações via `graph_dispatcher`.
+>   - Desabilita e remove a raiz das listas e seletores de exclusão.
+> - Persistência em Projetos (`case_manager.py`):
+>   - Validação da preservação de `excluded_nodes` como conjunto nas operações de exportação e importação de arquivos de dossiê (`.json`).
+> - Suíte de testes dedicada `cnpjpw/tests/test_node_exclusion.py` (7/7 aprovados). Total do repositório: 63/63 testes aprovados.
 
 #### Implementação exata
 
