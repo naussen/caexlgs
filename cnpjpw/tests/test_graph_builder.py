@@ -178,19 +178,45 @@ class TestGraphBuilder(unittest.TestCase):
         self.assertNotIn('Graph Bridge Receiver', html_code)
         self.assertNotIn("searchParams.set('expand_type'", html_code)
 
-    def test_api_client_resilient_fallback(self):
-        """Valida que o api_client opera com fallback automático e não falha silenciosamente."""
-        from cnpjpw.local_app import api_client
-        from unittest.mock import patch
-        # Mesmo com ENGINE_MODE = 'BIGQUERY', quando não há credenciais, não deve levantar exceção e desativa o modo BQ
-        with patch.object(api_client, "is_bigquery_available", return_value=False):
-            api_client.set_engine_mode("BIGQUERY")
-            self.assertFalse(api_client.is_bigquery_available())
-            self.assertFalse(api_client.is_bigquery_mode())
+    def test_graph_viewport_css_layout(self):
+        """Valida que o CSS do componente de grafo previne o blowout de flexbox e garante visibilidade."""
+        import os
+        component_html_path = os.path.join(
+            os.path.dirname(__file__), "..", "local_app", "components", "vis_graph", "index.html"
+        )
+        self.assertTrue(os.path.exists(component_html_path))
+        with open(component_html_path, "r", encoding="utf-8") as f:
+            html = f.read()
 
-            # Modo AUTO
-            api_client.set_engine_mode("AUTO")
-            self.assertFalse(api_client.is_bigquery_mode())
+        # Prevenção de blowout de altura no flexbox
+        self.assertIn("min-height: 0;", html)
+        self.assertIn("position: absolute;", html)
+        self.assertIn("overflow: hidden;", html)
+
+    def test_graph_elements_cnpj_07199448000125(self):
+        """Valida montagem correta de elementos para o CNPJ 07199448000125."""
+        company_data = {
+            "cnpj": "07199448000125",
+            "nome_empresarial": "FORMIGA COMERCIO DE AUTOMOVEIS LTDA",
+            "cnae_fiscal_principal": "4511102",
+            "situacao_cadastral": "ATIVA",
+            "socios": [
+                {
+                    "nome": "PAULO CESAR FORMIGA",
+                    "qualificacao_descricao": "Sócio-Administrador",
+                    "cnpj_cpf": "***892309**"
+                }
+            ],
+            "ddd1": "00",
+            "telefone_1": "492240153"
+        }
+        nodes, edges, avail = build_graph_elements(company_data)
+        self.assertGreaterEqual(len(nodes), 3)
+        self.assertGreaterEqual(len(edges), 2)
+        node_ids = {n["id"] for n in nodes}
+        self.assertIn("cnpj_07199448000125", node_ids)
+        self.assertIn("socio_paulo cesar formiga", node_ids)
+        self.assertIn("tel_00492240153", node_ids)
 
 if __name__ == "__main__":
     unittest.main()

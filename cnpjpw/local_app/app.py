@@ -524,6 +524,8 @@ elif st.session_state.view == 'DETAILS':
             erro = resp_det.error or api_client.get_last_error() or f"CNPJ {cnpj} não encontrado ou erro na API."
             st.error(erro)
         else:
+            st.session_state.current_cnpj = cnpj
+            st.session_state.current_company_data = dados
             col_title, col_newtab = st.columns([5, 1])
             with col_title:
                 st.header(dados.get('nome_empresarial', ''))
@@ -819,7 +821,7 @@ elif st.session_state.view == 'DETAILS':
                     manual_edges=st.session_state.graph_manual_edges,
                     height=850,
                     extra_companies=st.session_state.multi_expanded_companies,
-                    key=f"pomelo_graph_comp_{st.session_state.get('current_cnpj')}",
+                    key=f"pomelo_graph_comp_{cnpj}",
                     false_positive_accountants=st.session_state.graph_false_positive_accountants,
                     manual_accountants=st.session_state.graph_manual_accountants
                 )
