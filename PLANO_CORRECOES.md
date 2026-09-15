@@ -42,19 +42,43 @@ python -m compileall -q app.py cnpjpw/local_app cnpjpw/api cnpjpw/etl
 
 Não modificar `.env`, `.streamlit/secrets.toml`, chaves JSON, tokens ou credenciais reais. Não adicionar dependências sem necessidade comprovada.
 
-## 3. Estado atual confirmado
+## 3. Estado atual e painel de progresso
 
-Teste realizado com o CNPJ `75323907000190`:
+### 3.1 Painel de progresso das fases
 
-- consulta do CNPJ: funcional;
-- grafo inicial: 3 entidades e 2 conexões;
-- botão `+` dentro do grafo: sem efeito;
-- expansão externa da empresa raiz: não cria entidades e duplica arestas;
-- `Expandir Sócios (2º Grau)`: elevou o grafo para 8 entidades e 9 conexões;
-- `Expandir Contatos`: mudou o estado do botão, mas não adicionou entidades nem mostrou erro;
-- expansão externa de empresa vinculada: elevou o grafo para 10 entidades e 12 conexões;
-- o `X` interno usa a mesma comunicação defeituosa do botão `+`;
-- a suíte atual possui 27 testes aprovados, mas não cobre a comunicação real iframe/Streamlit.
+| Fase | Descrição / Escopo | Status | Commit | Testes Associados |
+| :--- | :--- | :---: | :--- | :--- |
+| **Fase 1** | Autenticação com login e senha compartilhados | ✅ Concluída | `dc2947d` | 10 testes (`test_auth.py`) |
+| **Fase 2** | Migração para componente Streamlit oficial (Vis.js) | ✅ Concluída | `ccbd6a1` | 8 testes (`test_graph_events.py`) |
+| **Fase 3** | Unificação do dispatcher de ações do grafo | ✅ Concluída | `62c813d` | 3 testes (`test_graph_events.py`) |
+| **Fase 4** | Semântica de expansão pontual (PJ, PF, Fone, E-mail) | ✅ Concluída | `39cff71` | 14 testes (`test_graph_events.py`) |
+| **Fase 5** | Camada unificada de dados (`data_service.py`) e sigilo | ✅ Concluída | `e9c9e0d` | 11 testes (`test_data_service.py`) |
+| **Fase 6** | Expansões globais (Sócios 2º Grau e Contatos da Rede) | ✅ Concluída | `4a65ab1` | 10 testes (`test_global_expansions.py`) |
+| **Fase 7** | Exclusão e restauração consistente de nós | ✅ Concluída | `cfea83d` | 7 testes (`test_node_exclusion.py`) |
+| **UI Fix** | Correção de blowout flexbox e posicionamento canvas | ✅ Concluída | `286c43f` | 5 testes (`test_graph_builder.py`) |
+| **Fase 8** | Deduplicação de nós e arestas (idempotência) | ✅ Concluída | `codex/fase-8` | 8 testes (`test_graph_deduplication.py`) |
+| **Fase 9** | Eliminação de falhas silenciosas e feedback de erros | ⏳ Pendente | — | *Próxima fase a implementar* |
+| **Fase 10** | Isolamento de sessões simultâneas e TLS estrito | ⏳ Pendente | — | A implementar |
+| **Fase 11** | Testes de integração completos e regressão | ⏳ Pendente | — | A implementar |
+| **Fase 12** | Alinhamento final de documentação e publicação | ⏳ Pendente | — | A implementar |
+
+**Progresso consolidado:** 8 de 12 fases do plano base concluídas (66,7%) + 1 correção estrutural de renderização de UI/Canvas.
+**Evolução da cobertura:** De 27 testes originais para **89 testes automatizados (100% aprovados)** cobrindo todos os fluxos críticos.
+
+### 3.2 Diagnóstico comparativo do app
+
+| Item Avaliado | Comportamento Inicial (Legado) | Comportamento Atual (Pós-Fase 8) |
+| :--- | :--- | :--- |
+| **Acesso Inicial** | Acesso público irrestrito via URL direta | Barreira obrigatória de login (`auth.py`) antes de carregar dados |
+| **Botões `+` e `X` no Grafo** | Sem efeito (bridge DOM com falha de comunicação) | Funcionais via componente oficial Streamlit e dispatcher único |
+| **Expansão de Raiz** | Duplicava arestas e reiniciava estado | Protegida contra auto-expansão redundante |
+| **Expansão de Sócios (2º Grau)** | Não respeitava escopo e não exibia resumo | Limitada estritamente ao 2º grau com sumário auditável detalhado |
+| **Expansão de Contatos** | Sem feedback e gerava erros silenciosos | Escopo unificado na rede, validação de DDD/e-mail e sumário |
+| **Origem de Consultas** | Dispersa entre `api_client` e wrappers | Unificada via `data_service.py` com contrato `QueryResult` e selo de sigilo |
+| **Exclusão de Entidades** | Inconsistente, dessincronizada e permitia excluir raiz | Persistente, reversível, expurga arestas e bloqueia exclusão da raiz |
+| **Renderização do Canvas** | Blowout vertical em flexbox no Streamlit | Altura fixa controlada (680px) com canvas estável e responsivo |
+| **Deduplicação de Rede** | Arestas duplicavam e expansão da raiz replicava conexões | Totalmente idempotente com `edges_dict`, deduplicação não-direcional e proteção da raiz |
+| **Suíte de Testes** | 27 testes (sem cobertura de bridge/eventos) | 89 testes cobrindo autenticação, eventos, dados, exclusões e deduplicação |
 
 ## 4. Ordem de implementação
 
@@ -419,7 +443,25 @@ Os nomes dos botões correspondem exatamente ao alcance real da operação, e o 
 
 O `X`, o botão externo e o painel de exclusões seguem exatamente as mesmas regras.
 
-### Fase 8 — Deduplicar nós e arestas
+### Melhoria Adicional — Correção de Blowout de Flexbox e Canvas Vis.js [CONCLUÍDA]
+
+> **Status:** Concluída integralmente (Commit `286c43f`).
+> - **Problema resolvido:** Colapso e blowout vertical/horizontal do canvas Vis.js dentro dos containers flexbox do Streamlit, que causavam perda de posicionamento e quebrava o layout de 680px.
+> - **Ajuste de CSS/HTML (`components/vis_graph/index.html`):** Adicionado `#graph-container { min-height: 680px; height: 680px; position: relative; overflow: hidden; }` e controle estrito no canvas vis.js, impedindo redimensionamento cíclico.
+> - **Ajuste Streamlit (`app.py`):** Configuração padronizada de altura fixa no componente customizado `render_interactive_graph(height=680)`.
+> - **Cobertura de testes:** Ampliação de `cnpjpw/tests/test_graph_builder.py` para validar a estrutura HTML, integridade do container e exportação de nós/arestas (5 novos testes). Total do repositório: 81/81 testes aprovados.
+
+### Fase 8 — Deduplicar nós e arestas [CONCLUÍDA]
+
+> **Status:** Concluída integralmente.
+> - **Indexação estável de nós (`nodes_dict`):** Identificadores normalizados por tipo (`cnpj_...`, `socio_...`, `tel_...`, `email_...`, `addr_...`, `proc_...`), com atualização de metadados quando promovido para UBO.
+> - **Deduplicação de arestas (`edges_dict`):** Estrutura indexada pela chave canônica `(u, v, relationship_type, label)`.
+> - **Classificação semântica (`get_relationship_type`):** Categorização precisa entre `PARENTESCO`, `ENDERECO`, `MESMO_EMAIL`, `EMAIL`, `MESMO_TELEFONE`, `TELEFONE`, `PARTICIPACAO`, `SOCIETARIO`, `MANUAL` e `JUDICIAL`.
+> - **Tratamento de relações não-direcionais:** Ordenação canônica dos endpoints (`min(src, dst), max(src, dst)`) para parentesco, endereços e contatos compartilhados, impedindo arestas duplas em ordens inversas (A-B vs B-A).
+> - **Integridade referencial estrita:** Verificação em `add_edge` e pós-filtro assegurando que arestas só conectam nós existentes e não-excluídos, com bloqueio de auto-laços (`src == dst`).
+> - **Proteção ativa da empresa raiz:** Bloqueio de redundância e descarte explícito de auto-expansão em `extra_companies`, `socios_empresas` e `contatos_empresas`, impedindo duplicação de nós ou replicação das arestas da raiz.
+> - **Preservação de tipos distintos:** Arestas entre os mesmos nós com relações diferentes (ex.: parentesco e vínculo manual) são preservadas.
+> - **Suíte de testes dedicada:** Criado `cnpjpw/tests/test_graph_deduplication.py` com 8 casos de teste (8/8 aprovados). Total do repositório: 89/89 testes aprovados.
 
 #### Implementação exata
 

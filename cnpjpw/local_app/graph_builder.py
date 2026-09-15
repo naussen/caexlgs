@@ -114,6 +114,47 @@ def is_probable_accountant(label: str = "", title: str = "", cnae: str = "") -> 
 
     return False
 
+# Tipos de relacionamento considerados não-direcionais na rede investigativa
+NON_DIRECTIONAL_RELATIONSHIPS = {
+    "PARENTESCO",
+    "ENDERECO",
+    "MESMO_ENDERECO",
+    "TELEFONE",
+    "MESMO_TELEFONE",
+    "EMAIL",
+    "MESMO_EMAIL",
+    "CONTATO",
+}
+
+def get_relationship_type(label: str = "", manual: bool = False, custom_type: str = None) -> str:
+    """
+    Classifica o tipo semântico do relacionamento para fins de indexação e deduplicação de arestas.
+    """
+    if custom_type:
+        return str(custom_type).upper()
+    if manual:
+        return "MANUAL"
+    lbl = str(label or "").strip().lower()
+    if "parentesco" in lbl:
+        return "PARENTESCO"
+    if "endereço" in lbl or "endereco" in lbl:
+        return "ENDERECO"
+    if "mesmo e-mail" in lbl or "mesmo email" in lbl:
+        return "MESMO_EMAIL"
+    if "e-mail" in lbl or "email" in lbl:
+        return "EMAIL"
+    if "mesmo fone" in lbl or "mesmo telefone" in lbl:
+        return "MESMO_TELEFONE"
+    if "telefone" in lbl or "fone" in lbl:
+        return "TELEFONE"
+    if "participação" in lbl or "participacao" in lbl:
+        return "PARTICIPACAO"
+    if any(q in lbl for q in ("autor", "réu", "reu", "processo", "executad")):
+        return "JUDICIAL"
+    if any(q in lbl for q in ("sócio", "socio", "administrador", "titular", "diretor")):
+        return "SOCIETARIO"
+    return lbl.upper() if lbl else "CONEXAO"
+
 def build_graph_elements(
     root_data: dict,
     socios_empresas: dict = None,
@@ -163,8 +204,8 @@ def build_graph_elements(
         extra_companies = {}
 
     ubo_names = {u.get('nome', '').strip().lower() for u in ubos if u.get('nome')}
-    nodes_dict = {}
-    edges_list = []
+    nodes_dict: Dict[str, Dict[str, Any]] = {}
+    edges_dict: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
 
     def add_node(
         node_id: str,
@@ -177,8 +218,8 @@ def build_graph_elements(
         border_color: str = None,
         raw_val: str = "",
         cnae: str = ""
-    ):
-        if node_id in excluded_nodes:
+    ) -> bool:
+        if not node_id or node_id in excluded_nodes:
             return False
 
         # Verificação e Sinalização de CONTADOR (com tratamento explícito de falso positivo pelo analista)
@@ -204,6 +245,7 @@ def build_graph_elements(
                 display_label = f"🧮 {display_label}"
             display_title += "<br><span style='background:#004D40; color:#ffffff; padding:2px 6px; border-radius:3px;'><b>🧮 SINALIZADO COMO CONTADOR / ESCRITÓRIO CONTÁBIL</b></span>"
 
+        # 1. Manter nodes_dict indexado por ID estável
         if node_id not in nodes_dict:
             nodes_dict[node_id] = {
                 "id": node_id,
@@ -223,39 +265,89 @@ def build_graph_elements(
                 "_raw_val": raw_val or node_id,
                 "_is_accountant": is_acct
             }
+        else:
+            # Se o nó já existe, promove para UBO se for o caso
+            existing = nodes_dict[node_id]
+            if node_type == "UBO" and existing.get("_type") == "SOCIO":
+                existing["_type"] = "UBO"
+                existing["color"]["background"] = COLOR_UBO
+                existing["size"] = max(existing.get("size", 21), 24)
+                if not existing["label"].startswith("👑"):
+                    existing["label"] = f"👑 {existing['label']}"
         return True
 
-    def add_edge(src: str, dst: str, label: str = "", manual: bool = False, custom_color: str = None, dashes: bool = False):
-        if src in nodes_dict and dst in nodes_dict:
-            if manual:
-                edges_list.append({
-                    "from": src,
-                    "to": dst,
-                    "label": label,
-                    "color": {"color": COLOR_EDGE_MANUAL, "highlight": "#FF1744"},
-                    "width": 3,
-                    "dashes": [6, 4],
-                    "font": {"color": COLOR_EDGE_MANUAL, "size": 11, "bold": True, "align": "middle"}
-                })
-            elif custom_color:
-                edges_list.append({
-                    "from": src,
-                    "to": dst,
-                    "label": label,
-                    "color": {"color": custom_color, "highlight": custom_color},
-                    "width": 2,
-                    "dashes": [4, 4] if dashes else False,
-                    "font": {"color": custom_color, "size": 10, "align": "middle"}
-                })
-            else:
-                edges_list.append({
-                    "from": src,
-                    "to": dst,
-                    "label": label,
-                    "color": {"color": COLOR_EDGE_AUTO, "highlight": "#37474F"},
-                    "width": 1.5,
-                    "font": {"color": "#546E7A", "size": 10, "align": "middle"}
-                })
+    def add_edge(
+        src: str,
+        dst: str,
+        label: str = "",
+        manual: bool = False,
+        custom_color: str = None,
+        dashes: bool = False,
+        relationship_type: str = None,
+        is_directional: bool = None
+    ) -> bool:
+        # 5. Não adicionar aresta se qualquer nó estiver ausente ou excluído, ou se for auto-laço
+        if not src or not dst or src == dst:
+            return False
+        if src not in nodes_dict or dst not in nodes_dict:
+            return False
+        if src in excluded_nodes or dst in excluded_nodes:
+            return False
+
+        rel_type = get_relationship_type(label, manual=manual, custom_type=relationship_type)
+
+        # 4. Para relações não direcionais, ordenar os dois IDs antes de formar a chave
+        if is_directional is None:
+            is_directional = rel_type not in NON_DIRECTIONAL_RELATIONSHIPS
+
+        if not is_directional:
+            u, v = (src, dst) if str(src) <= str(dst) else (dst, src)
+        else:
+            u, v = src, dst
+
+        clean_label = str(label or "").strip()
+        # 3. Definir chave da aresta como (source_id, target_id, relationship_type, label)
+        edge_key = (u, v, rel_type, clean_label)
+
+        # 2. Se a aresta já existe no edges_dict, não duplica
+        if edge_key in edges_dict:
+            return False
+
+        if manual:
+            edge_obj = {
+                "from": src,
+                "to": dst,
+                "label": clean_label,
+                "color": {"color": COLOR_EDGE_MANUAL, "highlight": "#FF1744"},
+                "width": 3,
+                "dashes": [6, 4],
+                "font": {"color": COLOR_EDGE_MANUAL, "size": 11, "bold": True, "align": "middle"},
+                "_type": rel_type
+            }
+        elif custom_color:
+            edge_obj = {
+                "from": src,
+                "to": dst,
+                "label": clean_label,
+                "color": {"color": custom_color, "highlight": custom_color},
+                "width": 2,
+                "dashes": [4, 4] if dashes else False,
+                "font": {"color": custom_color, "size": 10, "align": "middle"},
+                "_type": rel_type
+            }
+        else:
+            edge_obj = {
+                "from": src,
+                "to": dst,
+                "label": clean_label,
+                "color": {"color": COLOR_EDGE_AUTO, "highlight": "#37474F"},
+                "width": 1.5,
+                "font": {"color": "#546E7A", "size": 10, "align": "middle"},
+                "_type": rel_type
+            }
+
+        edges_dict[edge_key] = edge_obj
+        return True
 
     # 1. Empresa Principal (Raiz)
     root_cnpj = root_data.get('cnpj_basico', '')
@@ -264,6 +356,7 @@ def build_graph_elements(
     elif not root_cnpj:
         root_cnpj = root_data.get('cnpj', 'EMPRESA_ROOT')
 
+    root_cnpj_digits = re.sub(r"[^\d]", "", str(root_cnpj))
     root_name = root_data.get('nome_empresarial') or root_data.get('razao_social') or f"CNPJ {root_cnpj}"
     root_id = f"cnpj_{root_cnpj}"
     root_sit = (root_data.get('situacao_cadastral_descricao') or 'ATIVA').upper()
@@ -351,36 +444,40 @@ def build_graph_elements(
 
         for emp in (emp_list or []):
             emp_cnpj = emp.get('cnpj') or emp.get('cnpj_completo') or emp.get('cnpj_basico') or ""
+            emp_cnpj_digits = re.sub(r"[^\d]", "", str(emp_cnpj))
             emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
             emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
 
-            if emp_id != root_id:
-                emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
-                is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
-                emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
-                emp_prefix = "⚠️ " if is_emp_risk else ""
+            # 6. Impedir que a expansão de sócios replique a empresa raiz
+            if emp_id == root_id or (root_cnpj_digits and emp_cnpj_digits == root_cnpj_digits):
+                continue
 
-                emp_tooltip = (
-                    f"<b>🏢 {emp_nome}</b><br>"
-                    f"CNPJ: {emp_cnpj}<br>"
-                    f"Situação: {emp_sit}<br>"
-                    f"Sócio em comum: {s_nome_clean}"
-                )
-                if is_emp_risk:
-                    emp_tooltip += f"<br><font color='#D32F2F'><b>⚠️ ALERTA: Situação {emp_sit}</b></font>"
+            emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
+            is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
+            emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
+            emp_prefix = "⚠️ " if is_emp_risk else ""
 
-                if add_node(
-                    emp_id,
-                    label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
-                    title=emp_tooltip,
-                    color=emp_color,
-                    size=24,
-                    shape="dot",
-                    node_type="EMPRESA",
-                    raw_val=emp_cnpj,
-                    cnae=emp.get('cnae_fiscal_principal') or ""
-                ):
-                    add_edge(s_id, emp_id, label="Participação")
+            emp_tooltip = (
+                f"<b>🏢 {emp_nome}</b><br>"
+                f"CNPJ: {emp_cnpj}<br>"
+                f"Situação: {emp_sit}<br>"
+                f"Sócio em comum: {s_nome_clean}"
+            )
+            if is_emp_risk:
+                emp_tooltip += f"<br><font color='#D32F2F'><b>⚠️ ALERTA: Situação {emp_sit}</b></font>"
+
+            if add_node(
+                emp_id,
+                label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
+                title=emp_tooltip,
+                color=emp_color,
+                size=24,
+                shape="dot",
+                node_type="EMPRESA",
+                raw_val=emp_cnpj,
+                cnae=emp.get('cnae_fiscal_principal') or ""
+            ):
+                add_edge(s_id, emp_id, label="Participação")
 
     # 4. E-mails e Telefones da Raiz
     email = root_data.get('correio_eletronico')
@@ -437,26 +534,29 @@ def build_graph_elements(
             )
             for emp in (emp_list or []):
                 emp_cnpj = emp.get('cnpj') or emp.get('cnpj_completo') or ""
+                emp_cnpj_digits = re.sub(r"[^\d]", "", str(emp_cnpj))
                 emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
                 emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
-                if emp_id != root_id:
-                    emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
-                    is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
-                    emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
-                    emp_prefix = "⚠️ " if is_emp_risk else ""
-                    emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Mesmo e-mail: {em_clean}"
-                    if add_node(
-                        emp_id,
-                        label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
-                        title=emp_tooltip,
-                        color=emp_color,
-                        size=22,
-                        shape="dot",
-                        node_type="EMPRESA",
-                        raw_val=emp_cnpj,
-                        cnae=emp.get('cnae_fiscal_principal') or ""
-                    ):
-                        add_edge(em_id, emp_id, label="mesmo e-mail")
+                if emp_id == root_id or (root_cnpj_digits and emp_cnpj_digits == root_cnpj_digits):
+                    continue
+
+                emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
+                is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
+                emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
+                emp_prefix = "⚠️ " if is_emp_risk else ""
+                emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Mesmo e-mail: {em_clean}"
+                if add_node(
+                    emp_id,
+                    label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
+                    title=emp_tooltip,
+                    color=emp_color,
+                    size=22,
+                    shape="dot",
+                    node_type="EMPRESA",
+                    raw_val=emp_cnpj,
+                    cnae=emp.get('cnae_fiscal_principal') or ""
+                ):
+                    add_edge(em_id, emp_id, label="mesmo e-mail")
         else:
             digits = "".join(filter(str.isdigit, c_str))
             if len(digits) >= 8:
@@ -474,26 +574,29 @@ def build_graph_elements(
                 )
                 for emp in (emp_list or []):
                     emp_cnpj = emp.get('cnpj') or emp.get('cnpj_completo') or ""
+                    emp_cnpj_digits = re.sub(r"[^\d]", "", str(emp_cnpj))
                     emp_nome = emp.get('razao_social') or emp.get('nome_empresarial') or emp.get('nome_fantasia') or f"CNPJ {emp_cnpj}"
                     emp_id = f"cnpj_{emp_cnpj}" if emp_cnpj else f"emp_{emp_nome}"
-                    if emp_id != root_id:
-                        emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
-                        is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
-                        emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
-                        emp_prefix = "⚠️ " if is_emp_risk else ""
-                        emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Mesmo telefone: {tel_label}"
-                        if add_node(
-                            emp_id,
-                            label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
-                            title=emp_tooltip,
-                            color=emp_color,
-                            size=22,
-                            shape="dot",
-                            node_type="EMPRESA",
-                            raw_val=emp_cnpj,
-                            cnae=emp.get('cnae_fiscal_principal') or ""
-                        ):
-                            add_edge(tel_id, emp_id, label="mesmo fone")
+                    if emp_id == root_id or (root_cnpj_digits and emp_cnpj_digits == root_cnpj_digits):
+                        continue
+
+                    emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
+                    is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
+                    emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
+                    emp_prefix = "⚠️ " if is_emp_risk else ""
+                    emp_tooltip = f"<b>🏢 {emp_nome}</b><br>CNPJ: {emp_cnpj}<br>Mesmo telefone: {tel_label}"
+                    if add_node(
+                        emp_id,
+                        label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
+                        title=emp_tooltip,
+                        color=emp_color,
+                        size=22,
+                        shape="dot",
+                        node_type="EMPRESA",
+                        raw_val=emp_cnpj,
+                        cnae=emp.get('cnae_fiscal_principal') or ""
+                    ):
+                        add_edge(tel_id, emp_id, label="mesmo fone")
 
     # 6. Endereços Compartilhados
     for addr_key, addr_info in shared_addresses.items():
@@ -566,8 +669,14 @@ def build_graph_elements(
 
     # 10. Empresas Expandidas Dinamicamente (extra_companies)
     for ext_cnpj, ext_emp in extra_companies.items():
-        ext_nome = ext_emp.get('nome_empresarial') or ext_emp.get('razao_social') or f"CNPJ {ext_cnpj}"
+        ext_cnpj_digits = re.sub(r"[^\d]", "", str(ext_cnpj))
         ext_id = f"cnpj_{ext_cnpj}"
+
+        # 6. Impedir que a expansão replique a empresa raiz ou suas arestas
+        if ext_id == root_id or (root_cnpj_digits and ext_cnpj_digits == root_cnpj_digits):
+            continue
+
+        ext_nome = ext_emp.get('nome_empresarial') or ext_emp.get('razao_social') or f"CNPJ {ext_cnpj}"
         ext_sit = (ext_emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
         is_ext_risk = enable_risk_highlight and (ext_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
         ext_color = COLOR_EMPRESA_RISK if is_ext_risk else COLOR_EMPRESA_LINK
@@ -649,11 +758,17 @@ def build_graph_elements(
                 }
     if judicial_edges:
         for je in judicial_edges:
-            edges_list.append(je)
+            src = je.get("from")
+            dst = je.get("to")
+            lbl = str(je.get("label", "")).strip()
+            if src in nodes_dict and dst in nodes_dict and src not in excluded_nodes and dst not in excluded_nodes and src != dst:
+                edge_key = (src, dst, "JUDICIAL", lbl)
+                if edge_key not in edges_dict:
+                    edges_dict[edge_key] = je
 
     # Garante remoção automática de todas as arestas incidentes a nós excluídos ou inexistentes (Fase 7, Regra 7)
     edges_list = [
-        e for e in edges_list
+        e for e in edges_dict.values()
         if e.get("from") in nodes_dict and e.get("to") in nodes_dict
     ]
 
