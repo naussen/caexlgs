@@ -14,6 +14,7 @@ if _app_dir not in sys.path:
 import api_client
 import bigquery_client
 import data_service
+import sanitizers
 
 ALLOWED_ACTIONS = {"expand", "delete", "toggle_feature", "clear"}
 ALLOWED_ENTITY_TYPES = {
@@ -173,8 +174,9 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
     current_root_clean = "".join(filter(str.isdigit, str(current_root)))
 
     # 1. EMPRESA
-    if ent_type in ("EMPRESA", "EMPRESA_ROOT") or (val_str.isdigit() and len(val_str) in (8, 14)):
-        cnpj_limpo = "".join(filter(str.isdigit, val_str))
+    cnpj_candidato = sanitizers.adequar_documento(val_str)
+    if ent_type in ("EMPRESA", "EMPRESA_ROOT") or (len(cnpj_candidato) in (8, 14)):
+        cnpj_limpo = cnpj_candidato
         if len(cnpj_limpo) == 8:
             cnpj_limpo = cnpj_limpo.zfill(14)
 
@@ -252,14 +254,14 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "",
 
     # 3. TELEFONE
     elif ent_type == "TELEFONE":
-        fone_limpo = "".join(filter(str.isdigit, val_str))
-        # Regra 1, 2 e 3: Apenas dígitos, exigir DDD explícito (10 ou 11 dígitos), sem fallback arbitrário '11'
-        if len(fone_limpo) not in (10, 11):
-            st.warning(f"Telefone inválido para expansão: '{val_str}'. É obrigatório DDD com 2 dígitos seguido do número (ex: 11999998888).")
+        tel_info = sanitizers.adequar_telefone(val_str)
+        if not tel_info.get("valido"):
+            st.warning(f"Telefone inválido para expansão: '{val_str}'. {tel_info.get('erro') or 'É obrigatório DDD com 2 dígitos seguido do número.'}")
             return
 
-        ddd = fone_limpo[:2]
-        num = fone_limpo[2:]
+        ddd = tel_info["ddd"]
+        num = tel_info["numero"]
+        fone_limpo = tel_info["telefone_completo"]
 
         if "multi_expanded_phones" not in st.session_state:
             st.session_state.multi_expanded_phones = {}

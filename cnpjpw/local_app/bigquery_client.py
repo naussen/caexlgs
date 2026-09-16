@@ -3,6 +3,11 @@ import json
 from typing import Optional, List, Dict, Tuple
 
 try:
+    import sanitizers
+except ImportError:
+    from cnpjpw.local_app import sanitizers
+
+try:
     from google.cloud import bigquery
     from google.oauth2 import service_account
     from google.api_core.exceptions import GoogleAPICallError, PermissionDenied, NotFound, Forbidden
@@ -273,8 +278,10 @@ def buscar_telefone(ddd: str, telefone: str, limit: int = 25, months: int = 3) -
     """Busca estabelecimentos no BigQuery que possuam o DDD e telefone correspondentes com Razão Social."""
     global _last_error
     _last_error = None
-    ddd_clean = ddd.strip()
-    telefone_clean = telefone.strip()
+    tel_info = sanitizers.adequar_telefone(f"{ddd}{telefone}", default_ddd=ddd)
+    ddd_clean = tel_info.get("ddd") or "".join(filter(str.isdigit, str(ddd or "")))
+    telefone_clean = tel_info.get("numero") or "".join(filter(str.isdigit, str(telefone or "")))
+    telefone_alt = tel_info.get("numero_original_8") or telefone_clean
 
     try:
         client = _get_client()
@@ -298,8 +305,8 @@ def buscar_telefone(ddd: str, telefone: str, limit: int = 25, months: int = 3) -
         LEFT JOIN `basedosdados.br_me_cnpj.empresas` em
           ON est.cnpj_basico = em.cnpj_basico AND em.data = '{snapshot_ref}'
         WHERE {dates_filter} (
-            (est.ddd_1 = @ddd AND est.telefone_1 = @telefone) OR
-            (est.ddd_2 = @ddd AND est.telefone_2 = @telefone)
+            (est.ddd_1 = @ddd AND (est.telefone_1 = @telefone OR est.telefone_1 = @telefone_alt)) OR
+            (est.ddd_2 = @ddd AND (est.telefone_2 = @telefone OR est.telefone_2 = @telefone_alt))
         )
         GROUP BY est.cnpj
         ORDER BY est.cnpj
@@ -309,7 +316,8 @@ def buscar_telefone(ddd: str, telefone: str, limit: int = 25, months: int = 3) -
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter("ddd", "STRING", ddd_clean),
-                bigquery.ScalarQueryParameter("telefone", "STRING", telefone_clean)
+                bigquery.ScalarQueryParameter("telefone", "STRING", telefone_clean),
+                bigquery.ScalarQueryParameter("telefone_alt", "STRING", telefone_alt)
             ]
         )
         query_job = client.query(query, job_config=job_config)
@@ -507,14 +515,23 @@ def buscar_empresas_do_socio(nome_socio: str, doc_socio: str = None, snapshot_da
         if nome_socio:
             conditions.append("s.nome = @nome")
             params.append(bigquery.ScalarQueryParameter("nome", "STRING", nome_socio.strip().upper()))
-        if doc_socio and not doc_socio.startswith("***"):
-            import re
-            clean_doc = re.sub(r'\D', '', doc_socio)
-            if clean_doc:
-                conditions.append("s.documento = @doc")
-                params.append(bigquery.ScalarQueryParameter("doc", "STRING", clean_doc))
 
-        where_clause = " OR ".join(conditions)
+        if doc_socio:
+            import re
+            clean_doc = re.sub(r'\D', '', str(doc_socio))
+            if clean_doc:
+                if len(clean_doc) == 6 or "*" in str(doc_socio):
+                    # Máscara de CPF da Receita Federal (ex: ***123456**)
+                    conditions.append("(s.documento = @doc OR s.documento LIKE @doc_like)")
+                    params.append(bigquery.ScalarQueryParameter("doc", "STRING", clean_doc))
+                    params.append(bigquery.ScalarQueryParameter("doc_like", "STRING", f"%{clean_doc}%"))
+                else:
+                    conditions.append("s.documento = @doc")
+                    params.append(bigquery.ScalarQueryParameter("doc", "STRING", clean_doc))
+
+        # Regra do Usuário: Ambos itens devem corresponder entre si (AND obrigatório)
+        where_clause = " AND ".join(conditions) if conditions else "1=0"
+
 
         q_soc_emp = f"""
         SELECT 

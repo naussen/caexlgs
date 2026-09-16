@@ -20,8 +20,10 @@ if _app_dir not in sys.path:
 
 try:
     import data_service
+    import sanitizers
 except ImportError:
-    from cnpjpw.local_app import data_service
+    from cnpjpw.local_app import data_service, sanitizers
+
 
 DEFAULT_MAX_COMPANIES_PER_PARTNER = 25
 DEFAULT_MAX_COMPANIES_PER_CONTACT = 25
@@ -183,7 +185,7 @@ def expand_socios_grau2(
         if not n_socio:
             continue
 
-        doc_socio = socio.get("cnpj_cpf") or socio.get("cpf_cnpj") or socio.get("doc") or socio.get("cpf")
+        doc_socio = socio.get("cnpj_cpf") or socio.get("cpf_cnpj") or socio.get("doc") or socio.get("cpf") or socio.get("documento")
 
         # Se já estiver em cache, computa estatísticas
         if n_socio in cache:

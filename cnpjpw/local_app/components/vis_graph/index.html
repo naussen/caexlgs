@@ -224,6 +224,15 @@
       transform: scale(1.22);
       background-color: #b71c1c;
     }
+    .btn-tab-node {
+      background-color: #1565c0;
+      color: #ffffff;
+      font-size: 11px;
+    }
+    .btn-tab-node:hover {
+      transform: scale(1.22);
+      background-color: #0d47a1;
+    }
     #status-hint {
       position: absolute;
       bottom: 8px;
@@ -236,6 +245,22 @@
       pointer-events: none;
       border: 1px solid #e0e0e0;
       z-index: 5;
+    }
+    #graph-notification-toast {
+      display: none;
+      position: absolute;
+      top: 12px;
+      right: 14px;
+      background: rgba(26, 35, 126, 0.95);
+      color: #ffffff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: bold;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+      z-index: 9999;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
     }
   </style>
 </head>
@@ -255,9 +280,9 @@
         <div class="toolbar-divider"></div>
 
         <div class="toolbar-section">
-          <button id="btn-toggle-accountants" class="btn btn-toggle" onclick="toggleAccountants()" title="Oculta ou destaca nós de contadores e escritórios contábeis">🧮 Ocultar Contadores</button>
-          <button id="btn-toggle-socios" class="btn btn-toggle" onclick="triggerToggleSocios()" title="Busca empresas vinculadas aos sócios diretos da raiz (Grau 2)">👥 Sócios 2º Grau</button>
-          <button id="btn-toggle-contacts" class="btn btn-toggle" onclick="triggerToggleContacts()" title="Busca empresas com mesmo telefone ou e-mail de todas as empresas visíveis na rede">📞 Contatos da Rede</button>
+          <button id="btn-toggle-accountants" class="btn btn-toggle" onclick="toggleAccountants()" title="Contadores estão visíveis. Clique para ocultar nós de contabilidade">🧮 Contadores: [ VISÍVEIS ] ➔ Ocultar</button>
+          <button id="btn-toggle-socios" class="btn btn-toggle" onclick="triggerToggleSocios()" title="Alternar visualização de empresas dos sócios diretos da raiz (Grau 2)">👥 Sócios 2º Grau: [ OCULTOS ] ➔ Exibir</button>
+          <button id="btn-toggle-contacts" class="btn btn-toggle" onclick="triggerToggleContacts()" title="Alternar visualização de empresas com mesmo telefone ou e-mail na rede">📞 Contatos: [ OCULTOS ] ➔ Exibir</button>
           <button class="btn btn-danger" onclick="clearGraph()" title="Limpar todos os nós da rede para recomeçar">🧹 Limpar</button>
         </div>
       </div>
@@ -290,11 +315,13 @@
 
     <div id="network-wrapper">
       <div id="network-canvas"></div>
+      <div id="graph-notification-toast"></div>
       <div id="node-actions-menu">
+        <button id="node-tab-btn" class="node-action-btn btn-tab-node" title="Abrir ficha completa em nova aba (mantém o grafo intacto)">↗️</button>
         <button id="node-expand-btn" class="node-action-btn btn-expand-node" title="Expandir relações desta entidade (+)">✚</button>
         <button id="node-delete-btn" class="node-action-btn btn-delete-node" title="Excluir nó da visualização (✕)">✕</button>
       </div>
-      <div id="status-hint">💡 Arraste entidades livremente para organizar. Passe o mouse sobre nós para ver ações ou clique duas vezes para expandir.</div>
+      <div id="status-hint">💡 Clique em qualquer nó para copiar CNPJ/Nome e abrir em nova aba. Passe o mouse para ver ações. Arraste livremente.</div>
     </div>
   </div>
 
@@ -313,6 +340,7 @@
     const actionMenu = document.getElementById('node-actions-menu');
     const expandBtn = document.getElementById('node-expand-btn');
     const delBtn = document.getElementById('node-delete-btn');
+    const tabBtn = document.getElementById('node-tab-btn');
     const canvasContainer = document.getElementById('network-canvas');
     const entitySelector = document.getElementById('entity-selector');
 
@@ -337,13 +365,101 @@
       sendToStreamlit("streamlit:setComponentValue", { value: val });
     }
 
+    // Feedback Visual Flutuante (Toast)
+    function showGraphToast(msg) {
+      let toast = document.getElementById('graph-notification-toast');
+      if (!toast) return;
+      toast.textContent = msg;
+      toast.style.display = 'block';
+      toast.style.opacity = '1';
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(function() {
+        toast.style.opacity = '0';
+        setTimeout(function() { toast.style.display = 'none'; }, 300);
+      }, 2800);
+    }
+
+    // Extração do valor canônico para cópia (CNPJ para empresas, Nome para PF)
+    function getEntityCopyValue(nodeObj) {
+      if (!nodeObj) return '';
+      const nt = String(nodeObj._type || '').toUpperCase();
+      if (nt.includes('EMPRESA')) {
+        const raw = String(nodeObj._raw_val || nodeObj.id || '');
+        const digits = raw.replace(/\D/g, '');
+        return digits.length === 14 ? digits : raw;
+      } else if (nt.includes('SOCIO') || nt.includes('UBO') || nt.includes('MANUAL')) {
+        let l = String(nodeObj._raw_val || nodeObj.label || '');
+        return l.replace(/^👑\s*/, '').replace(/^👤\s*/, '').replace(/^⭐\s*/, '').trim();
+      } else if (nt === 'TELEFONE') {
+        return String(nodeObj._raw_val || nodeObj.label || '').trim();
+      } else if (nt === 'EMAIL') {
+        return String(nodeObj._raw_val || nodeObj.label || '').trim();
+      }
+      return String(nodeObj._raw_val || nodeObj.label || '').trim();
+    }
+
+    // URL para carregar dados completos da entidade em nova aba sem fechar o grafo
+    function getEntityDetailsUrl(nodeObj) {
+      if (!nodeObj) return null;
+      const nt = String(nodeObj._type || '').toUpperCase();
+      if (nt.includes('EMPRESA')) {
+        const digits = String(nodeObj._raw_val || nodeObj.id || '').replace(/\D/g, '');
+        if (digits.length >= 8) {
+          return '?cnpj=' + digits;
+        }
+      } else if (nt.includes('SOCIO') || nt.includes('UBO')) {
+        let nome = String(nodeObj._raw_val || nodeObj.label || '');
+        nome = nome.replace(/^👑\s*/, '').replace(/^👤\s*/, '').trim();
+        if (nome) {
+          return '?socio=' + encodeURIComponent(nome);
+        }
+      }
+      return null;
+    }
+
+    // Cópia automática para Clipboard com fallback seguro
+    function copyToClipboard(text) {
+      if (!text) return;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).catch(function() {
+          fallbackCopy(text);
+        });
+      } else {
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch(e) {}
+      document.body.removeChild(ta);
+    }
+
+    function openInNewTab(nodeId) {
+      if (!nodesDataSet) return;
+      const nodeObj = nodesDataSet.get(nodeId);
+      const url = getEntityDetailsUrl(nodeObj);
+      if (url) {
+        window.open(url, '_blank');
+        showGraphToast('↗️ Ficha aberta em nova aba: ' + (nodeObj.label || nodeId));
+      } else {
+        showGraphToast('ℹ️ Esta entidade não possui ficha independente para abertura.');
+      }
+      if (actionMenu) actionMenu.style.display = 'none';
+    }
+
     // Centralização Automática (Requisito 2)
     function autoCenter(delay = 100) {
       setTimeout(function() {
         if (network) {
           network.fit({
             animation: {
-              duration: 650,
+              duration: 400,
               easingFunction: 'easeInOutQuad'
             }
           });
@@ -372,9 +488,14 @@
             delBtn.style.display = 'inline-block';
           }
         }
+        if (tabBtn) {
+          const tabUrl = getEntityDetailsUrl(nodeObj);
+          tabBtn.style.display = tabUrl ? 'inline-block' : 'none';
+        }
+
         const pos = network.getPosition(nodeId);
         const domPos = network.canvasToDOM(pos);
-        actionMenu.style.left = (domPos.x - 26) + 'px';
+        actionMenu.style.left = (domPos.x - 38) + 'px';
         actionMenu.style.top = (domPos.y - 38) + 'px';
         actionMenu.style.display = 'flex';
       } catch (e) {
@@ -409,7 +530,6 @@
         activeTargetNode = null;
         return;
       }
-      // Delegação ao backend Python sem remoção prematura no DOM (Fase 7, Regra 6)
       sendValue({
         action: 'delete',
         node_id: String(nodeId),
@@ -431,12 +551,12 @@
       }
     }
 
-    // Sinalização e Ocultação de Contadores (Requisito 4)
+    // Sinalização e Ocultação de Contadores com Rótulo Inequívoco
     function toggleAccountants() {
       accountantsHidden = !accountantsHidden;
       const btn = document.getElementById('btn-toggle-accountants');
       if (btn) {
-        btn.innerHTML = accountantsHidden ? '🧮 Exibir Contadores' : '🧮 Ocultar Contadores';
+        btn.innerHTML = accountantsHidden ? '🧮 Contadores: [ OCULTOS ] ➔ Exibir' : '🧮 Contadores: [ VISÍVEIS ] ➔ Ocultar';
         btn.classList.toggle('btn-active', accountantsHidden);
       }
 
@@ -451,6 +571,7 @@
       }
       autoCenter(200);
     }
+
 
     // Liberdade Total de Movimentação (Requisito 3)
     function toggleFreeMoveMode() {
@@ -536,6 +657,13 @@
     }
 
     function attachListeners() {
+      if (tabBtn) {
+        tabBtn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (activeTargetNode) openInNewTab(activeTargetNode);
+        });
+      }
+
       expandBtn.addEventListener('click', function(e) {
         e.stopPropagation();
         if (activeTargetNode) expandNode(activeTargetNode);
@@ -578,6 +706,29 @@
 
       // Atualiza o seletor de entidades da toolbar
       updateEntitySelector(nodesData);
+
+      // Sincroniza estado e rótulos dos botões da toolbar
+      const btnSocios = document.getElementById('btn-toggle-socios');
+      if (btnSocios) {
+        if (args.expand_socios) {
+          btnSocios.innerHTML = '👥 Sócios 2º Grau: [ EXIBIDOS ] ➔ Ocultar';
+          btnSocios.classList.add('btn-active');
+        } else {
+          btnSocios.innerHTML = '👥 Sócios 2º Grau: [ OCULTOS ] ➔ Exibir';
+          btnSocios.classList.remove('btn-active');
+        }
+      }
+
+      const btnContacts = document.getElementById('btn-toggle-contacts');
+      if (btnContacts) {
+        if (args.expand_contacts) {
+          btnContacts.innerHTML = '📞 Contatos: [ EXIBIDOS ] ➔ Ocultar';
+          btnContacts.classList.add('btn-active');
+        } else {
+          btnContacts.innerHTML = '📞 Contatos: [ OCULTOS ] ➔ Exibir';
+          btnContacts.classList.remove('btn-active');
+        }
+      }
 
       const options = args.options || {
         nodes: {
@@ -651,8 +802,44 @@
           if (params.nodes.length > 0) {
             clearTimeout(hideTimeout);
             activeTargetNode = params.nodes[0];
+            const nodeObj = nodesDataSet.get(activeTargetNode);
+
+            if (nodeObj) {
+              // REQUISITO 3: Copiar automaticamente CNPJ ou Nome Completo
+              const copyVal = getEntityCopyValue(nodeObj);
+              if (copyVal) {
+                copyToClipboard(copyVal);
+              }
+
+              // REQUISITO 4: Abrir automaticamente em nova aba sem fechar o grafo
+              const tabUrl = getEntityDetailsUrl(nodeObj);
+              let tabOpened = false;
+              if (tabUrl) {
+                try {
+                  const newWin = window.open(tabUrl, '_blank');
+                  if (newWin) tabOpened = true;
+                } catch(e) {}
+              }
+
+              if (tabOpened) {
+                showGraphToast('📋 Copiado & ↗️ Aberto em nova aba: ' + copyVal);
+              } else if (copyVal) {
+                showGraphToast('📋 Copiado para a área de transferência: ' + copyVal);
+              }
+
+              sendValue({
+                action: 'select_node',
+                node_id: String(activeTargetNode),
+                entity_type: nodeObj._type || 'OUTRO',
+                entity_value: String(nodeObj._raw_val || nodeObj.id),
+                entity_label: String(nodeObj.label || nodeObj._raw_label || nodeObj.id),
+                copied_value: copyVal,
+                feature: null,
+                nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+              });
+            }
+
             updateActionMenuPosition(activeTargetNode);
-            // Sincroniza o seletor da barra superior com o nó clicado
             if (entitySelector) entitySelector.value = activeTargetNode;
           }
         });

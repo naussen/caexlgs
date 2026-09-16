@@ -19,8 +19,9 @@ from typing import Dict, Any, List, Optional, Union
 try:
     import api_client
     import bigquery_client
+    import sanitizers
 except ImportError:
-    from cnpjpw.local_app import api_client, bigquery_client
+    from cnpjpw.local_app import api_client, bigquery_client, sanitizers
 
 SOURCE_BIGQUERY = "BIGQUERY"
 SOURCE_LOCAL_API = "LOCAL_API"
@@ -161,7 +162,7 @@ def get_source_display_name(source: str, fallback_used: bool = False) -> str:
 
 def get_cnpj(cnpj: str) -> QueryResult:
     """Consulta a ficha cadastral completa de uma empresa."""
-    cnpj_limpo = "".join(filter(str.isdigit, str(cnpj or "")))
+    cnpj_limpo = sanitizers.adequar_documento(cnpj)
     if len(cnpj_limpo) == 8:
         cnpj_limpo = cnpj_limpo.zfill(14)
 
@@ -228,7 +229,7 @@ def get_cnpj(cnpj: str) -> QueryResult:
 def buscar_empresas_do_socio(nome: str, doc: str = None) -> QueryResult:
     """Busca todas as empresas vinculadas a um sócio por nome e/ou documento."""
     nome_clean = (nome or "").strip()
-    doc_clean = "".join(filter(str.isdigit, str(doc or ""))) if doc and "*" not in str(doc) else (str(doc or "").strip())
+    doc_clean = sanitizers.adequar_documento(doc) if doc else ""
 
     fallback_needed = False
     bq_error_msg = None
@@ -290,22 +291,24 @@ def buscar_empresas_do_socio(nome: str, doc: str = None) -> QueryResult:
 
 def buscar_socio(doc: str) -> QueryResult:
     """Busca empresas por documento específico de sócio (CPF/CNPJ)."""
-    return buscar_empresas_do_socio(nome="", doc=doc)
+    return buscar_empresas_do_socio(nome="", doc=sanitizers.adequar_documento(doc))
 
 
 def buscar_telefone(ddd: str, telefone: str, months: int = 3) -> QueryResult:
     """
     Busca reversa de empresas por telefone.
     Regra 5 da Fase 5: Não executa busca reversa na API pública quando ela não oferece o endpoint.
+    Aplica adequação automática de telefone celular (8, 10 ou 11 dígitos) e fixo.
     """
-    ddd_clean = "".join(filter(str.isdigit, str(ddd or "")))
-    tel_clean = "".join(filter(str.isdigit, str(telefone or "")))
+    tel_info = sanitizers.adequar_telefone(f"{ddd}{telefone}", default_ddd=ddd)
+    ddd_clean = tel_info.get("ddd") or "".join(filter(str.isdigit, str(ddd or "")))
+    tel_clean = tel_info.get("numero") or "".join(filter(str.isdigit, str(telefone or "")))
 
-    if len(ddd_clean) != 2 or len(tel_clean) < 8:
+    if not tel_info.get("valido") and (len(ddd_clean) != 2 or len(tel_clean) < 8):
         return QueryResult(
             results=[],
             source=get_api_source(),
-            error=f"Telefone inválido: DDD '{ddd}' (2 dígitos) e número '{telefone}' (mínimo 8 dígitos).",
+            error=tel_info.get("erro") or f"Telefone inválido: DDD '{ddd}' (2 dígitos) e número '{telefone}' (mínimo 8 dígitos).",
             fallback_used=False
         )
 

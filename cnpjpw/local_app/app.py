@@ -20,6 +20,7 @@ import auth
 import graph_dispatcher
 import data_service
 import graph_expansions
+import sanitizers
 
 st.set_page_config(page_title="POMELO — Inteligência Societária", page_icon="🍊", layout="wide")
 
@@ -35,6 +36,8 @@ if not st.session_state.authenticated:
 
 # Detecta ?cnpj=... ou ?socio=... na URL para abertura direta (útil para links em nova aba)
 query_cnpj = st.query_params.get("cnpj")
+if query_cnpj:
+    query_cnpj = sanitizers.adequar_documento(query_cnpj)
 if query_cnpj and query_cnpj != st.session_state.get('last_loaded_cnpj_query'):
     st.session_state.last_loaded_cnpj_query = query_cnpj
     st.session_state.view = 'DETAILS'
@@ -201,8 +204,11 @@ def render_back_button():
                 st.rerun()
 
 def executar_busca_telefone(ddd: str, tel: str):
+    tel_info = sanitizers.adequar_telefone(f"{ddd}{tel}", default_ddd=ddd)
+    d = tel_info.get("ddd") or ddd
+    n = tel_info.get("numero") or tel
     months = st.session_state.get('bq_months', 3)
-    resp = data_service.buscar_telefone(ddd, tel, months=months)
+    resp = data_service.buscar_telefone(d, n, months=months)
     origem = data_service.get_source_display_name(resp.source, resp.fallback_used)
     return resp.results, resp.error, origem, resp.source, resp.fallback_used
 
@@ -335,10 +341,11 @@ if st.session_state.view == 'HOME':
     
     with col1:
         st.subheader("Por CNPJ")
-        cnpj_input = st.text_input("Digite o CNPJ (somente números):")
+        cnpj_input = st.text_input("Digite o CNPJ:", placeholder="Ex: 21.807.980/0001-09 ou 21807980000109")
         if st.button("Buscar CNPJ", key="btn_busca_cnpj"):
             if cnpj_input:
-                navigate_to('DETAILS', cnpj=cnpj_input.strip())
+                cnpj_adequado = sanitizers.adequar_documento(cnpj_input)
+                navigate_to('DETAILS', cnpj=cnpj_adequado)
                 st.rerun()
 
     with col2:
@@ -360,15 +367,16 @@ if st.session_state.view == 'HOME':
     col3, col4 = st.columns(2)
     with col3:
         st.subheader("Por Sócio")
-        socio_doc = st.text_input("Documento (CPF/CNPJ):")
+        socio_doc = st.text_input("Documento (CPF/CNPJ):", placeholder="Ex: 123.456.789-01 ou 21.807.980/0001-09")
         socio_nome = st.text_input("Nome do Sócio (opcional):")
         if st.button("Buscar Sócio", key="btn_busca_socio"):
+            doc_adequado = sanitizers.adequar_documento(socio_doc)
             with st.spinner("Consultando empresas do sócio..."):
-                if socio_doc and not socio_nome:
-                    resp = data_service.buscar_socio(socio_doc)
-                    titulo = f"Resultados para Sócio Doc: {socio_doc}"
+                if doc_adequado and not socio_nome:
+                    resp = data_service.buscar_socio(doc_adequado)
+                    titulo = f"Resultados para Sócio Doc: {doc_adequado}"
                 elif socio_nome:
-                    resp = data_service.buscar_empresas_do_socio(socio_nome, socio_doc)
+                    resp = data_service.buscar_empresas_do_socio(socio_nome, doc_adequado)
                     titulo = f"Empresas do Sócio Nome: {socio_nome}"
                 else:
                     resp = data_service.QueryResult(results=[], source=data_service.get_api_source(), error=None)
@@ -384,12 +392,15 @@ if st.session_state.view == 'HOME':
         st.subheader("Por Telefone / E-mail")
         tipo_contato = st.selectbox("Buscar por", ["Telefone", "Email"])
         if tipo_contato == "Telefone":
-            telefone_input = st.text_input("Digite o DDD + Telefone (ex: 11999999999)")
+            telefone_input = st.text_input("Digite o DDD + Telefone:", placeholder="Ex: (11) 98765-4321 ou (11) 8765-4321")
             if st.button("Buscar Telefone", key="btn_busca_tel"):
-                if len(telefone_input) >= 10:
-                    ddd = telefone_input[:2]
-                    tel = telefone_input[2:]
-                    with st.spinner("Buscando empresas por telefone..."):
+                tel_info = sanitizers.adequar_telefone(telefone_input)
+                if tel_info["valido"]:
+                    ddd = tel_info["ddd"]
+                    tel = tel_info["numero"]
+                    if tel_info.get("ajuste_realizado"):
+                        st.toast(f"ℹ️ {tel_info['ajuste_realizado']}")
+                    with st.spinner(f"Buscando empresas por telefone ({ddd}) {tel}..."):
                         resultados, erro, origem, src, fb = executar_busca_telefone(ddd, tel)
                         st.session_state.last_search_source = src
                         st.session_state.last_search_fallback = fb
@@ -397,7 +408,7 @@ if st.session_state.view == 'HOME':
                     navigate_to('RESULTS', title=f"Resultados para Telefone: ({ddd}) {tel}", results=resultados)
                     st.rerun()
                 else:
-                    st.error("Informe pelo menos 10 dígitos (DDD + Telefone).")
+                    st.error(tel_info.get("erro") or "Informe DDD (2 dígitos) e telefone (8 ou 9 dígitos).")
         else:
             email_input = st.text_input("Digite o Email")
             if st.button("Buscar Email", key="btn_busca_email"):
@@ -778,33 +789,68 @@ elif st.session_state.view == 'DETAILS':
                 merged_contatos.update(st.session_state.multi_expanded_phones)
                 merged_contatos.update(st.session_state.multi_expanded_emails)
 
-                # Barra rápida de controles de expansão da rede
-                c_btn_exp1, c_btn_exp2, c_btn_exp3 = st.columns([1.5, 1.5, 2])
+                # Barra rápida de controles de expansão da rede com status inequívoco
+                c_btn_exp1, c_btn_exp2, c_btn_exp3 = st.columns([1.6, 1.6, 1.8])
                 with c_btn_exp1:
-                    lbl_soc = "👥 Ocultar Sócios (2º Grau)" if st.session_state.get('graph_expand_socios') else "👥 Expandir Sócios (2º Grau)"
-                    if st.button(lbl_soc, key="btn_toggle_expand_socios", use_container_width=True, help="Busca outras empresas onde os sócios diretos da raiz participam (Grau 2)"):
+                    soc_ativo = st.session_state.get('graph_expand_socios', False)
+                    status_soc = "🟢 EXIBIDOS" if soc_ativo else "⚪ OCULTOS"
+                    lbl_soc = "❌ CLIQUE P/ OCULTAR Sócios (2º Grau)" if soc_ativo else "➕ CLIQUE P/ EXIBIR Sócios (2º Grau)"
+                    st.caption(f"Sócios 2º Grau: **{status_soc}**")
+                    if st.button(lbl_soc, key="btn_toggle_expand_socios", use_container_width=True, help="Alterna a exibição das empresas vinculadas aos sócios diretos da raiz (Grau 2)"):
                         graph_dispatcher.handle_graph_action({
                             "action": "toggle_feature",
                             "feature": "expand_socios",
                             "nonce": f"ext_toggle_socios_{time.time()}"
                         })
                         st.rerun()
+
                 with c_btn_exp2:
-                    lbl_cont = "📞 Ocultar Contatos" if st.session_state.get('graph_expand_contacts') else "📞 Expandir Contatos da Rede"
-                    if st.button(lbl_cont, key="btn_toggle_expand_contacts", use_container_width=True, help="Busca empresas que compartilham telefones ou e-mails de todas as empresas visíveis na rede"):
+                    cont_ativo = st.session_state.get('graph_expand_contacts', False)
+                    status_cont = "🟢 EXIBIDOS" if cont_ativo else "⚪ OCULTOS"
+                    lbl_cont = "❌ CLIQUE P/ OCULTAR Contatos da Rede" if cont_ativo else "➕ CLIQUE P/ EXIBIR Contatos da Rede"
+                    st.caption(f"Contatos da Rede: **{status_cont}**")
+                    if st.button(lbl_cont, key="btn_toggle_expand_contacts", use_container_width=True, help="Alterna a exibição de empresas que compartilham telefones ou e-mails na rede"):
                         graph_dispatcher.handle_graph_action({
                             "action": "toggle_feature",
                             "feature": "expand_contacts",
                             "nonce": f"ext_toggle_contacts_{time.time()}"
                         })
                         st.rerun()
+
                 with c_btn_exp3:
+                    st.caption("Ação Rápida:")
                     if st.button("🧹 Limpar Relações Expandidas", key="btn_clear_graph_exp", use_container_width=True, help="Reinicia a visualização mantendo apenas a empresa raiz e seus vínculos diretos"):
                         graph_dispatcher.handle_graph_action({
                             "action": "clear",
                             "nonce": f"ext_clear_{time.time()}"
                         })
                         st.rerun()
+
+                # Card de entidade clicada no Grafo (Cópia automática e Link para Nova Aba sem fechar o grafo)
+                sel_ev = st.session_state.get('selected_graph_node')
+                if sel_ev and isinstance(sel_ev, dict):
+                    sel_lbl = sel_ev.get('entity_label') or sel_ev.get('node_id') or ''
+                    sel_val = sel_ev.get('entity_value') or ''
+                    sel_type = str(sel_ev.get('entity_type') or '').upper()
+                    link_url = None
+                    if 'EMPRESA' in sel_type:
+                        c_dig = "".join(filter(str.isdigit, str(sel_val)))
+                        if len(c_dig) >= 8:
+                            link_url = f"?cnpj={c_dig}"
+                    elif 'SOCIO' in sel_type or 'UBO' in sel_type:
+                        l_clean = sel_lbl.replace("👑", "").replace("👤", "").strip()
+                        if l_clean:
+                            link_url = f"?socio={urllib.parse.quote(l_clean)}"
+
+                    c_info1, c_info2 = st.columns([3.2, 1.3])
+                    with c_info1:
+                        st.info(f"🎯 Entidade Clicada: **{sel_lbl}** • Dado copiado automaticamente para a área de transferência!")
+                    with c_info2:
+                        if link_url:
+                            st.markdown(
+                                f'<a href="{link_url}" target="_blank" style="display:inline-block; width:100%; text-align:center; padding:9px 12px; background:#1565c0; color:#ffffff; border-radius:6px; font-weight:700; text-decoration:none; margin-top:2px; font-size:13px;">↗️ Abrir em Nova Aba</a>',
+                                unsafe_allow_html=True
+                            )
 
                 # Renderização oficial via Streamlit Custom Component (Fase 2)
                 comp_event, nos_atuais = graph_builder.render_interactive_graph(
@@ -828,6 +874,10 @@ elif st.session_state.view == 'DETAILS':
 
                 # Despacho unificado de eventos do componente interativo (Fase 3)
                 if comp_event and isinstance(comp_event, dict):
+                    if comp_event.get("action") == "select_node":
+                        st.session_state.selected_graph_node = comp_event
+                        if comp_event.get("copied_value"):
+                            st.toast(f"📋 Copiado: {comp_event['copied_value']}")
                     if graph_dispatcher.handle_graph_action(
                         comp_event,
                         expand_fn=executar_expansao_entidade,
@@ -1157,7 +1207,7 @@ elif st.session_state.view == 'DETAILS':
                                 'id': new_node_id,
                                 'label': m_nome.strip(),
                                 'type': tipo_code,
-                                'doc': m_doc.strip(),
+                                'doc': sanitizers.adequar_documento(m_doc),
                                 'obs': m_obs.strip()
                             })
                             st.success(f"Nó '{m_nome.strip()}' adicionado ao grafo!")

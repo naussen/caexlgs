@@ -16,8 +16,13 @@ Funcionalidades:
 import os
 import json
 import re
-from typing import Tuple, List, Dict, Set, Optional, Any
+from typing import Dict, List, Any, Optional, Tuple, Set
 import streamlit.components.v1 as components
+
+try:
+    import sanitizers
+except ImportError:
+    from cnpjpw.local_app import sanitizers
 
 # Registro do Custom Component Streamlit com comunicação bidirecional
 _COMPONENT_DIR = os.path.join(os.path.dirname(__file__), "components", "vis_graph")
@@ -386,13 +391,50 @@ def build_graph_elements(
         cnae=root_data.get('cnae_fiscal_principal') or ""
     )
 
+    # 2. Resolução Estrita de Pessoas Físicas (CPF + Nome)
+    known_pfs: List[Dict[str, Any]] = []
+    root_socios_doc_map: Dict[str, str] = {}
+
+    def resolve_socio_node(nome: str, doc: str = "", default_id: str = None) -> str:
+        """
+        Resolve ou cria nó de sócio/pessoa física segundo a regra estrita de correspondência:
+        Ambos os itens (parte do CPF + Nome completo/parcial) devem corresponder.
+        Se não corresponderem, cria nós separados e impede a unificação indevida de homônimos.
+        """
+        nome_clean = (nome or "").strip()
+        doc_clean = (doc or "").strip()
+
+        for existing in known_pfs:
+            if sanitizers.nomes_correspondem(existing['nome'], nome_clean):
+                ok, _ = sanitizers.correspondem_pessoa_fisica(
+                    existing['nome'], existing['doc'],
+                    nome_clean, doc_clean
+                )
+                if ok:
+                    return existing['id']
+
+        # Se não correspondeu a nenhum existente com comprovação de ambos os itens
+        base_id = default_id or f"socio_{nome_clean.lower()}"
+        chosen_id = base_id
+        if base_id in nodes_dict:
+            cpf_part = sanitizers.extrair_parte_cpf(doc_clean) or f"homonimo_{len(known_pfs) + 1}"
+            chosen_id = f"{base_id}_{cpf_part}"
+
+        known_pfs.append({
+            'id': chosen_id,
+            'nome': nome_clean,
+            'doc': doc_clean
+        })
+        return chosen_id
+
     # 2. Sócios da Raiz
     socios = root_data.get('socios', [])
     for i, s in enumerate(socios):
         nome_socio = (s.get('nome') or f"Sócio {i+1}").strip()
         qualif = s.get('qualificacao_descricao') or s.get('qualificacao_socio_descricao') or "Sócio"
-        doc = s.get('cnpj_cpf') or ""
-        socio_id = f"socio_{nome_socio.lower()}"
+        doc = s.get('cnpj_cpf') or s.get('cpf_cnpj') or s.get('doc') or ""
+        root_socios_doc_map[nome_socio.lower()] = doc
+        socio_id = resolve_socio_node(nome_socio, doc)
 
         is_ubo = nome_socio.lower() in ubo_names
         socio_color = COLOR_UBO if is_ubo else COLOR_SOCIO
@@ -423,7 +465,8 @@ def build_graph_elements(
         s_nome_clean = (s_nome or "").strip()
         if not s_nome_clean:
             continue
-        s_id = f"socio_{s_nome_clean.lower()}"
+        doc_cached = root_socios_doc_map.get(s_nome_clean.lower(), "")
+        s_id = resolve_socio_node(s_nome_clean, doc_cached)
         is_ubo = s_nome_clean.lower() in ubo_names
         s_color = COLOR_UBO if is_ubo else COLOR_SOCIO
         s_prefix = "👑 " if is_ubo else ""
@@ -703,15 +746,15 @@ def build_graph_elements(
             cnae=ext_emp.get('cnae_fiscal_principal') or ""
         )
 
-        # Sócios da empresa expandida
+        # Sócios da empresa expandida (Resolução Estrita de PF)
         for es in ext_emp.get('socios', []):
             es_nome = (es.get('nome') or "").strip()
             if es_nome:
-                es_id = f"socio_{es_nome.lower()}"
                 es_qualif = es.get('qualificacao_descricao') or es.get('qualificacao_socio_descricao') or "Sócio"
-                es_doc = es.get('cnpj_cpf') or ""
-                es_tooltip = f"<b>👤 {es_nome}</b><br>Qualificação: {es_qualif}<br>Documento: {es_doc}"
-                if add_node(
+                es_doc = es.get('cnpj_cpf') or es.get('cpf_cnpj') or es.get('doc') or ""
+                es_id = resolve_socio_node(es_nome, es_doc, es_qualif)
+                es_tooltip = f"<b>👤 {es_nome}</b><br>Qualificação: {es_qualif}<br>Documento: {es_doc or 'Não informado'}"
+                add_node(
                     es_id,
                     label=es_nome[:18] + ("..." if len(es_nome) > 18 else ""),
                     title=es_tooltip,
@@ -720,8 +763,8 @@ def build_graph_elements(
                     shape="dot",
                     node_type="SOCIO",
                     raw_val=es_nome
-                ):
-                    add_edge(ext_id, es_id, label=es_qualif[:16])
+                )
+                add_edge(ext_id, es_id, label=es_qualif[:16])
 
         # E-mail da empresa expandida
         ext_em = ext_emp.get('correio_eletronico')
@@ -831,10 +874,22 @@ def render_interactive_graph(
         manual_accountants=manual_accountants
     )
 
+    exp_soc = False
+    exp_cont = False
+    try:
+        import streamlit as st
+        if hasattr(st, 'session_state'):
+            exp_soc = bool(st.session_state.get('graph_expand_socios', False))
+            exp_cont = bool(st.session_state.get('graph_expand_contacts', False))
+    except Exception:
+        pass
+
     comp_value = _vis_graph_component(
         nodes=nodes_list,
         edges=edges_list,
         height=height,
+        expand_socios=exp_soc,
+        expand_contacts=exp_cont,
         key=key,
         default=None
     )
@@ -998,7 +1053,7 @@ def build_graph_html(
         <div id="toolbar">
           <button class="btn" onclick="autoCenter(50)" title="Centralizar e ajustar a escala da visualização">🔍 Centralizar</button>
           <button class="btn" id="btn-physics" onclick="togglePhysics()" title="Pausar ou reativar movimentação física">⏸️ Pausar Física</button>
-          <button class="btn" id="btn-contadores" onclick="toggleAccountants()" title="Ocultar ou exibir nós de contabilidade">🧮 Ocultar Contadores</button>
+          <button class="btn" id="btn-contadores" onclick="toggleAccountants()" title="Contadores estão visíveis. Clique para ocultar nós de contabilidade">🧮 Contadores: [ VISÍVEIS ] ➔ Ocultar</button>
           <button class="btn" onclick="toggleFullScreen()" title="Alternar modo tela cheia">⛶ Tela Cheia</button>
           <button class="btn" onclick="exportImage()" title="Salvar imagem PNG da rede">📸 Salvar PNG</button>
           <span class="status-pill">📊 {num_nos} entidades | {num_arestas} conexões</span>
@@ -1261,7 +1316,7 @@ def build_graph_html(
           accountantsHidden = !accountantsHidden;
           var btn = document.getElementById('btn-contadores');
           if (btn) {{
-            btn.innerHTML = accountantsHidden ? '🧮 Exibir Contadores' : '🧮 Ocultar Contadores';
+            btn.innerHTML = accountantsHidden ? '🧮 Contadores: [ OCULTOS ] ➔ Exibir' : '🧮 Contadores: [ VISÍVEIS ] ➔ Ocultar';
             btn.classList.toggle('btn-active', accountantsHidden);
           }}
           var updates = [];
