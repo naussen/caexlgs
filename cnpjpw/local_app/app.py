@@ -14,6 +14,7 @@ import graph_builder
 import risk_analyzer
 import case_manager
 import report_generator
+import ai_grounding
 import pandas as pd
 import time
 import auth
@@ -951,21 +952,74 @@ elif st.session_state.view == 'DETAILS':
 
                 with tab_rep:
                     st.write("#### 📑 Emissão de Relatório e Dossiê Consolidado")
-                    st.caption("Exporte todos os vínculos, indicadores de risco, quadro societário e anotações em formato profissional.")
+                    st.caption("Exporte todos os vínculos, indicadores de risco, quadro societário e fundamentação pericial em formato profissional.")
                     
+                    with st.expander("🤖 Configurações do Assistente de IA para Fundamentação Jurídica (API Grátis)", expanded=False):
+                        st.markdown("""
+                        O assistente utiliza modelos de linguagem com foco pericial para fundamentar a desconsideração da personalidade jurídica
+                        (**Art. 50 do Código Civil, Lei 12.846/13 e Súmula 513/STJ**), cruzar indícios de confusão patrimonial e sugerir medidas cautelares.
+                        
+                        **Opções de API 100% Gratuitas:**
+                        * 🌟 **Google Gemini Free Tier (Recomendado):** [Obter Chave Grátis no Google AI Studio](https://aistudio.google.com/app/apikey) (15 req/min sem custo).
+                        * 🚀 **Groq Cloud Free Tier (Llama 3.3 70B):** [Obter Chave Grátis no Groq Console](https://console.groq.com/keys) (Ultra-rápido).
+                        * 🌐 **OpenRouter Free:** [Obter Chave no OpenRouter](https://openrouter.ai/keys) (Modelos livres).
+                        * 🛡️ *Modo Offline / Sem Chave:* Se nenhuma chave for informada, o sistema aciona o motor pericial determinístico local automaticamente.
+                        """)
+                        c_ai_prov, c_ai_key = st.columns([1, 2])
+                        with c_ai_prov:
+                            ai_provider_sel = st.selectbox(
+                                "Provedor de IA:",
+                                options=["auto", "gemini", "groq", "openrouter"],
+                                format_func=lambda x: {
+                                    "auto": "⚡ Automático (Melhor Disponível)",
+                                    "gemini": "🌟 Google Gemini (gemini-1.5-flash)",
+                                    "groq": "🚀 Groq Cloud (llama-3.3-70b)",
+                                    "openrouter": "🌐 OpenRouter (Modelos Free)"
+                                }.get(x, x),
+                                key="sel_ai_provider"
+                            )
+                        with c_ai_key:
+                            custom_key = st.text_input(
+                                "Chave de API Gratuita (opcional se configurada no ambiente):",
+                                type="password",
+                                placeholder="Cole sua chave API gratuita aqui...",
+                                key="input_ai_key",
+                                value=st.session_state.get("custom_ai_api_key", "")
+                            )
+                            st.session_state.custom_ai_api_key = custom_key
+
                     col_arg1, col_arg2 = st.columns([3, 2])
                     with col_arg1:
                         st.session_state.investigation_notes = st.text_area(
-                            "Parecer / Síntese Argumentativa da Investigação:",
+                            "Parecer Técnico & Embasamento Jurídico da Investigação:",
                             value=st.session_state.investigation_notes,
-                            placeholder="Insira aqui as conclusões, observações patrimoniais ou clique ao lado para gerar a minuta com lógica argumentativa automática...",
-                            height=130
+                            placeholder="Insira aqui as conclusões ou clique nos botões ao lado para gerar a minuta com embasamento pericial e jurisprudencial...",
+                            height=160
                         )
                     with col_arg2:
                         st.write("")
-                        st.write("")
-                        if st.button("🤖 Gerar Minuta com Lógica Argumentativa", key="btn_gen_arg_logic", use_container_width=True):
-                            with st.spinner("Estruturando fundamentação técnico-jurídica..."):
+                        if st.button("🤖 Gerar Fundamentação & Embasamento com IA", key="btn_gen_ai_dossier", use_container_width=True, type="primary"):
+                            with st.spinner("Analisando grupo econômico, matriz de risco e elaborando parecer com IA..."):
+                                ai_res = ai_grounding.gerar_fundamentacao_dossie_ia(
+                                    root_data=dados,
+                                    all_companies=all_cluster_companies,
+                                    socios_list=dados.get('socios', []),
+                                    risk_info=risk_info,
+                                    shared_addresses=shared_addresses,
+                                    ubos=ubos,
+                                    existing_notes=st.session_state.investigation_notes,
+                                    provider=st.session_state.get("sel_ai_provider", "auto"),
+                                    custom_api_key=st.session_state.get("custom_ai_api_key", "")
+                                )
+                                st.session_state.investigation_notes = ai_res.get("texto_integral", "")
+                                if ai_res.get("used_ai"):
+                                    st.success(f"Fundamentação elaborada com sucesso via {ai_res.get('provider')}!")
+                                else:
+                                    st.info(f"Fundamentação gerada via {ai_res.get('provider')}. {ai_res.get('fallback_reason', '')}")
+                                st.rerun()
+
+                        if st.button("⚖️ Minuta Padrão Local (Sem IA)", key="btn_gen_arg_logic", use_container_width=True):
+                            with st.spinner("Estruturando fundamentação técnico-jurídica determinística..."):
                                 arg_dict = report_generator.build_argumentative_dossier(
                                     root_data=dados,
                                     all_companies=all_cluster_companies,

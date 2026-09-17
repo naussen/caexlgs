@@ -544,10 +544,33 @@ def generate_pdf_dossier(
         story.append(t_end)
         story.append(Spacer(1, 10))
 
-    # Notas do Analista
+    # Notas do Analista & Parecer Pericial
     if notes:
-        story.append(Paragraph("Parecer & Notas do Investigador", sec_style))
-        story.append(Paragraph(notes.replace('\n', '<br/>'), body_style))
+        import html
+        import re
+        story.append(Paragraph("Parecer Técnico & Embasamento Investigativo", sec_style))
+        story.append(Spacer(1, 4))
+        for line in notes.split('\n'):
+            line_str = line.strip()
+            if not line_str:
+                story.append(Spacer(1, 3))
+                continue
+            
+            # Escapar caracteres HTML/XML para proteger o parser do ReportLab
+            safe_text = html.escape(line_str)
+            # Converter **negrito** para <b>negrito</b>
+            safe_text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', safe_text)
+            
+            if safe_text.startswith('#'):
+                header_text = safe_text.lstrip('#').strip()
+                story.append(Spacer(1, 5))
+                story.append(Paragraph(f"<b>{header_text}</b>", body_style))
+            elif safe_text.startswith('- ') or safe_text.startswith('* '):
+                bullet_content = safe_text[2:].strip()
+                story.append(Paragraph(f"&bull; {bullet_content}", body_style))
+            else:
+                story.append(Paragraph(safe_text, body_style))
+        story.append(Spacer(1, 10))
 
     doc.build(story)
     return output.getvalue()
