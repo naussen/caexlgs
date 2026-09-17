@@ -416,6 +416,74 @@
       gap: 8px;
       flex-wrap: wrap;
     }
+    /* Estilos do Modal de Opções de Exportação PNG */
+    #export-modal-backdrop {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(2px);
+      z-index: 2500;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    #export-modal-card {
+      background: #ffffff;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 580px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+      border: 1px solid #cfd8dc;
+      animation: modalFadeIn 0.2s ease-out;
+      overflow: hidden;
+    }
+    .export-option-btn {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      background: #ffffff;
+      border: 1.5px solid #cfd8dc;
+      border-radius: 8px;
+      padding: 13px 15px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      margin-bottom: 10px;
+    }
+    .export-option-btn:hover {
+      background: #f0f4f8;
+      border-color: #1976d2;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(25, 118, 210, 0.12);
+    }
+    .export-opt-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0d47a1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .export-opt-desc {
+      font-size: 11px;
+      color: #546e7a;
+      line-height: 1.4;
+    }
+    .export-opt-tag {
+      background: #e3f2fd;
+      color: #1565c0;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 10px;
+      margin-left: auto;
+    }
   </style>
 </head>
 <body>
@@ -448,7 +516,7 @@
           <button id="btn-free-mode" class="btn btn-sm btn-active" onclick="toggleFreeMoveMode()" title="Ativa a movimentação livre: ao arrastar um nó ele fica exatamente onde você soltar sem voltar">📌 Posição Livre</button>
           <button id="physics-toggle" class="btn btn-sm" onclick="togglePhysics()" title="Pausar ou reativar a simulação física">⏸️ Pausar Física</button>
           <button class="btn btn-sm" id="fs-toggle" onclick="toggleFullScreen()" title="Alternar visualização em tela cheia">⛶ Tela Cheia</button>
-          <button class="btn btn-sm" onclick="exportImage()" title="Exportar imagem da rede em alta resolução">📸 Salvar PNG</button>
+          <button class="btn btn-sm btn-primary" onclick="openExportModal()" title="Opções de exportação em alta resolução (4K) ou recortes">📸 Salvar PNG ▾</button>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -494,6 +562,51 @@
             <button id="modal-btn-copy" class="btn" onclick="modalCopyCurrentEntity()" title="Copiar CNPJ ou documento">📋 Copiar Dado</button>
             <button id="modal-btn-open-tab" class="btn" onclick="modalOpenTabCurrentEntity()" title="Abrir ficha completa em nova aba">↗️ Abrir em Nova Aba</button>
             <button class="btn" onclick="closeEntityModal()" style="margin-left:auto;">✕ Fechar</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- MODAL DE OPÇÕES DE EXPORTAÇÃO DE IMAGEM -->
+      <div id="export-modal-backdrop" onclick="handleExportBackdropClick(event)">
+        <div id="export-modal-card">
+          <div class="modal-header">
+            <div class="modal-header-left">
+              <h3 class="modal-title">📸 Exportar Imagem da Rede</h3>
+              <div class="modal-subtitle">Fundo branco sólido permanente e alta resolução para relatórios</div>
+            </div>
+            <button class="modal-close-icon" onclick="closeExportModal()" title="Fechar">✕</button>
+          </div>
+          <div class="modal-body" style="padding:16px;">
+            <div class="export-option-btn" onclick="executeExport('full_uhd')">
+              <div class="export-opt-title">
+                <span>🌐 Grafo Completo em Ultra-HD (4K / Alta Resolução)</span>
+                <span class="export-opt-tag">RECOMENDADO</span>
+              </div>
+              <div class="export-opt-desc">
+                Ideal para grafos grandes. Renderiza a malha completa em resolução 3x (3600px) com fundo branco permanente e textos em <b>preto sólido nítido</b>. Permite aplicar zoom livre no visualizador de fotos sem que nada fique borrado.
+              </div>
+            </div>
+
+            <div class="export-option-btn" onclick="executeExport('current_view')">
+              <div class="export-opt-title">
+                <span>🔍 Recorte da Visão Atual (Zoom em Tela)</span>
+              </div>
+              <div class="export-opt-desc">
+                Exporta fielmente a área exata e o nível de aproximação que você está visualizando no momento, mantendo os detalhes em fundo branco.
+              </div>
+            </div>
+
+            <div class="export-option-btn" onclick="executeExport('cluster')">
+              <div class="export-opt-title">
+                <span>🎯 Recorte Focado da Entidade + Conexões Diretas</span>
+              </div>
+              <div class="export-opt-desc">
+                Enquadra em foco ampliado a entidade selecionada (ou a empresa raiz) e seus vínculos imediatos, excluindo nós periféricos distantes.
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn" onclick="closeExportModal()" style="margin-left:auto;">✕ Cancelar</button>
           </div>
         </div>
       </div>
@@ -1106,6 +1219,7 @@
       document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
           closeEntityModal();
+          closeExportModal();
         }
         if ((e.key === 'Delete' || e.key === 'Backspace') && network) {
           const sel = network.getSelectedNodes();
@@ -1154,10 +1268,11 @@
       const options = args.options || {
         nodes: {
           font: {
-            size: 13,
+            size: 14,
             face: 'Roboto, Segoe UI, sans-serif',
-            color: '#1A237E',
-            strokeWidth: 3,
+            color: '#000000',
+            bold: true,
+            strokeWidth: 3.5,
             strokeColor: '#FFFFFF',
             multi: 'html'
           },
@@ -1166,13 +1281,14 @@
         },
         edges: {
           font: {
-            size: 10,
+            size: 11,
             face: 'Roboto, Segoe UI, sans-serif',
-            color: '#37474F',
-            strokeWidth: 2,
+            color: '#000000',
+            bold: true,
+            strokeWidth: 2.5,
             strokeColor: '#FFFFFF',
             align: 'middle',
-            background: 'rgba(255, 255, 255, 0.88)'
+            background: 'rgba(255, 255, 255, 0.95)'
           },
           smooth: { type: 'continuous', roundness: 0.25 },
           shadow: false
@@ -1344,65 +1460,177 @@
     document.addEventListener('fullscreenchange', handleFsChange);
     document.addEventListener('webkitfullscreenchange', handleFsChange);
 
-    function exportImage() {
-      if (!network) return;
-      showGraphToast('📸 Gerando imagem com fundo branco e máxima nitidez...');
+    function openExportModal() {
+      const el = document.getElementById('export-modal-backdrop');
+      if (el) el.style.display = 'flex';
+    }
 
-      // Preserva a visualização e coordenadas atuais do analista
+    function closeExportModal() {
+      const el = document.getElementById('export-modal-backdrop');
+      if (el) el.style.display = 'none';
+    }
+
+    function handleExportBackdropClick(e) {
+      if (e.target && e.target.id === 'export-modal-backdrop') {
+        closeExportModal();
+      }
+    }
+
+    function executeExport(mode = 'full_uhd') {
+      if (!network) return;
+      closeExportModal();
+
+      showGraphToast('📸 Processando exportação (' + mode + ')...');
+
+      // Preserva zoom e enquadramento atual do analista
       const prevScale = network.getScale();
       const prevPosition = network.getViewPosition();
+      const containerW = canvasContainer.clientWidth || 1200;
+      const containerH = canvasContainer.clientHeight || 850;
 
-      // Ajusta o enquadramento de todos os nós com margem de segurança
-      network.fit({
-        animation: false
-      });
+      let filename = 'grafo_relacionamentos.png';
+      let titleHeader = '🛡️ POMELO / CAEXLGS — Grafo de Relacionamentos Societários & Risco';
 
-      setTimeout(function() {
-        try {
-          const sourceCanvas = canvasContainer.getElementsByTagName('canvas')[0];
-          if (!sourceCanvas) return;
+      if (mode === 'full_uhd') {
+        filename = 'grafo_completo_4k.png';
+        titleHeader += ' (Ultra-HD / Alta Resolução)';
 
-          // Cria canvas secundário com fundo sólido
-          const outCanvas = document.createElement('canvas');
-          outCanvas.width = sourceCanvas.width;
-          outCanvas.height = sourceCanvas.height;
-          const ctx = outCanvas.getContext('2d');
+        // Multiplicador de resolução 3x para grafos densos (UHD 4K)
+        const mult = 3;
+        const targetW = Math.max(containerW * mult, 3600);
+        const targetH = Math.max(containerH * mult, 2400);
 
-          // 1. FUNDO BRANCO SÓLIDO (#FFFFFF)
-          // Essencial: elimina fundo escuro/preto ao abrir o PNG em visualizadores com modo escuro
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+        canvasContainer.style.width = targetW + 'px';
+        canvasContainer.style.height = targetH + 'px';
+        network.setSize(targetW + 'px', targetH + 'px');
+        network.fit({ animation: false, padding: 120 });
 
-          // 2. Desenha o grafo com todos os nós e arestas sobre o fundo branco
-          ctx.drawImage(sourceCanvas, 0, 0);
+        setTimeout(function() {
+          try {
+            const sourceCanvas = canvasContainer.getElementsByTagName('canvas')[0];
+            if (sourceCanvas) {
+              const outCanvas = document.createElement('canvas');
+              outCanvas.width = sourceCanvas.width;
+              outCanvas.height = sourceCanvas.height;
+              const ctx = outCanvas.getContext('2d');
 
-          // 3. Cabeçalho discreto de auditoria
-          ctx.fillStyle = '#1A237E';
-          ctx.font = 'bold 13px "Segoe UI", Roboto, sans-serif';
-          ctx.fillText('🛡️ POMELO / CAEXLGS — Grafo de Relacionamentos Societários & Risco', 20, 26);
+              // 1. FUNDO BRANCO SÓLIDO (#FFFFFF)
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
 
-          ctx.fillStyle = '#78909C';
-          ctx.font = '10px "Segoe UI", Roboto, sans-serif';
-          const nowStr = new Date().toLocaleString('pt-BR');
-          ctx.fillText('Exportado em: ' + nowStr, 20, 42);
+              // 2. Grafo renderizado com máxima resolução
+              ctx.drawImage(sourceCanvas, 0, 0);
 
-          // 4. Download da imagem em PNG
-          const link = document.createElement('a');
-          link.download = 'grafo_relacionamentos.png';
-          link.href = outCanvas.toDataURL('image/png');
-          link.click();
-          showGraphToast('✅ Grafo exportado com sucesso em alta nitidez (Fundo Branco)!');
-        } catch (e) {
-          console.error("Erro ao exportar imagem:", e);
-        } finally {
-          // Restaura imediatamente a visualização do analista
-          network.moveTo({
-            position: prevPosition,
-            scale: prevScale,
-            animation: false
-          });
+              // 3. Cabeçalho de auditoria proporcional
+              ctx.fillStyle = '#000000';
+              ctx.font = 'bold 24px "Segoe UI", Roboto, sans-serif';
+              ctx.fillText(titleHeader, 40, 50);
+
+              ctx.fillStyle = '#546E7A';
+              ctx.font = '16px "Segoe UI", Roboto, sans-serif';
+              ctx.fillText('Exportado em: ' + new Date().toLocaleString('pt-BR'), 40, 80);
+
+              // 4. Download do PNG Ultra-HD
+              const link = document.createElement('a');
+              link.download = filename;
+              link.href = outCanvas.toDataURL('image/png');
+              link.click();
+              showGraphToast('✅ Grafo Ultra-HD (4K) exportado com sucesso (Fundo Branco)!');
+            }
+          } catch(e) {
+            console.error("Erro ao exportar UHD:", e);
+          } finally {
+            canvasContainer.style.width = '100%';
+            canvasContainer.style.height = '100%';
+            network.setSize('100%', '100%');
+            network.moveTo({ position: prevPosition, scale: prevScale, animation: false });
+          }
+        }, 400);
+
+      } else if (mode === 'cluster') {
+        filename = 'grafo_recorte_cluster.png';
+        titleHeader += ' (Recorte do Cluster)';
+
+        let focalId = activeTargetNode;
+        if (!focalId && nodesDataSet) {
+          const allNodes = nodesDataSet.get();
+          const rootNode = allNodes.find(function(n) { return n._type === 'EMPRESA_ROOT' || n._is_root; });
+          if (rootNode) focalId = rootNode.id;
+          else if (allNodes.length > 0) focalId = allNodes[0].id;
         }
-      }, 350);
+
+        if (focalId) {
+          const connected = network.getConnectedNodes(focalId);
+          const nodesToFit = [focalId].concat(connected || []);
+          network.fit({ nodes: nodesToFit, animation: false, padding: 80 });
+        }
+
+        setTimeout(function() {
+          try {
+            const sourceCanvas = canvasContainer.getElementsByTagName('canvas')[0];
+            if (sourceCanvas) {
+              const outCanvas = document.createElement('canvas');
+              outCanvas.width = sourceCanvas.width;
+              outCanvas.height = sourceCanvas.height;
+              const ctx = outCanvas.getContext('2d');
+
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+              ctx.drawImage(sourceCanvas, 0, 0);
+
+              ctx.fillStyle = '#000000';
+              ctx.font = 'bold 14px "Segoe UI", Roboto, sans-serif';
+              ctx.fillText(titleHeader, 20, 28);
+
+              ctx.fillStyle = '#78909C';
+              ctx.font = '10px "Segoe UI", Roboto, sans-serif';
+              ctx.fillText('Exportado em: ' + new Date().toLocaleString('pt-BR'), 20, 44);
+
+              const link = document.createElement('a');
+              link.download = filename;
+              link.href = outCanvas.toDataURL('image/png');
+              link.click();
+              showGraphToast('✅ Recorte do cluster exportado com sucesso!');
+            }
+          } finally {
+            network.moveTo({ position: prevPosition, scale: prevScale, animation: false });
+          }
+        }, 300);
+
+      } else {
+        // mode === 'current_view'
+        filename = 'grafo_recorte_atual.png';
+        titleHeader += ' (Recorte da Visão Atual)';
+
+        setTimeout(function() {
+          const sourceCanvas = canvasContainer.getElementsByTagName('canvas')[0];
+          if (sourceCanvas) {
+            const outCanvas = document.createElement('canvas');
+            outCanvas.width = sourceCanvas.width;
+            outCanvas.height = sourceCanvas.height;
+            const ctx = outCanvas.getContext('2d');
+
+            // Fundo Branco Sólido
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+            ctx.drawImage(sourceCanvas, 0, 0);
+
+            ctx.fillStyle = '#000000';
+            ctx.font = 'bold 14px "Segoe UI", Roboto, sans-serif';
+            ctx.fillText(titleHeader, 20, 28);
+
+            ctx.fillStyle = '#78909C';
+            ctx.font = '10px "Segoe UI", Roboto, sans-serif';
+            ctx.fillText('Exportado em: ' + new Date().toLocaleString('pt-BR'), 20, 44);
+
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = outCanvas.toDataURL('image/png');
+            link.click();
+            showGraphToast('✅ Recorte atual exportado com sucesso!');
+          }
+        }, 200);
+      }
     }
 
     window.addEventListener("message", function(event) {

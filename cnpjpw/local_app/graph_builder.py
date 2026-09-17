@@ -375,10 +375,11 @@ def build_graph_elements(
                 "size": size,
                 "shape": shape,
                 "font": {
-                    "color": "#1A237E",
-                    "size": 13,
+                    "color": "#000000",
+                    "size": 14,
+                    "bold": True,
                     "face": "Roboto, Segoe UI, sans-serif",
-                    "strokeWidth": 3,
+                    "strokeWidth": 3.5,
                     "strokeColor": "#FFFFFF"
                 },
                 "shadow": True,
@@ -449,13 +450,13 @@ def build_graph_elements(
                 "width": 3,
                 "dashes": [6, 4],
                 "font": {
-                    "color": COLOR_EDGE_MANUAL,
+                    "color": "#000000",
                     "size": 11,
                     "bold": True,
                     "align": "middle",
-                    "strokeWidth": 2,
+                    "strokeWidth": 2.5,
                     "strokeColor": "#FFFFFF",
-                    "background": "rgba(255, 255, 255, 0.88)"
+                    "background": "rgba(255, 255, 255, 0.95)"
                 },
                 "_type": rel_type
             }
@@ -468,12 +469,13 @@ def build_graph_elements(
                 "width": 2,
                 "dashes": [4, 4] if dashes else False,
                 "font": {
-                    "color": custom_color,
-                    "size": 10,
+                    "color": "#000000",
+                    "size": 11,
+                    "bold": True,
                     "align": "middle",
-                    "strokeWidth": 2,
+                    "strokeWidth": 2.5,
                     "strokeColor": "#FFFFFF",
-                    "background": "rgba(255, 255, 255, 0.88)"
+                    "background": "rgba(255, 255, 255, 0.95)"
                 },
                 "_type": rel_type
             }
@@ -485,12 +487,13 @@ def build_graph_elements(
                 "color": {"color": COLOR_EDGE_AUTO, "highlight": "#37474F"},
                 "width": 1.5,
                 "font": {
-                    "color": "#37474F",
-                    "size": 10,
+                    "color": "#000000",
+                    "size": 11,
+                    "bold": True,
                     "align": "middle",
-                    "strokeWidth": 2,
+                    "strokeWidth": 2.5,
                     "strokeColor": "#FFFFFF",
-                    "background": "rgba(255, 255, 255, 0.88)"
+                    "background": "rgba(255, 255, 255, 0.95)"
                 },
                 "_type": rel_type
             }
