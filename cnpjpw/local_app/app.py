@@ -953,12 +953,31 @@ elif st.session_state.view == 'DETAILS':
                     st.write("#### 📑 Emissão de Relatório e Dossiê Consolidado")
                     st.caption("Exporte todos os vínculos, indicadores de risco, quadro societário e anotações em formato profissional.")
                     
-                    st.session_state.investigation_notes = st.text_area(
-                        "Parecer / Notas da Investigação:",
-                        value=st.session_state.investigation_notes,
-                        placeholder="Insira aqui as conclusões, observações patrimoniais ou apontamentos do analista que constarão no relatório...",
-                        height=100
-                    )
+                    col_arg1, col_arg2 = st.columns([3, 2])
+                    with col_arg1:
+                        st.session_state.investigation_notes = st.text_area(
+                            "Parecer / Síntese Argumentativa da Investigação:",
+                            value=st.session_state.investigation_notes,
+                            placeholder="Insira aqui as conclusões, observações patrimoniais ou clique ao lado para gerar a minuta com lógica argumentativa automática...",
+                            height=130
+                        )
+                    with col_arg2:
+                        st.write("")
+                        st.write("")
+                        if st.button("🤖 Gerar Minuta com Lógica Argumentativa", key="btn_gen_arg_logic", use_container_width=True):
+                            with st.spinner("Estruturando fundamentação técnico-jurídica..."):
+                                arg_dict = report_generator.build_argumentative_dossier(
+                                    root_data=dados,
+                                    all_companies=all_cluster_companies,
+                                    socios_list=dados.get('socios', []),
+                                    risk_info=risk_info,
+                                    shared_addresses=shared_addresses,
+                                    ubos=ubos,
+                                    notes=st.session_state.investigation_notes
+                                )
+                                st.session_state.investigation_notes = arg_dict.get('texto_integral', '')
+                                st.success("Lógica argumentativa gerada!")
+                                st.rerun()
 
                     c_rep1, c_rep2 = st.columns(2)
                     with c_rep1:

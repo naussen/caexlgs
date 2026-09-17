@@ -17,14 +17,131 @@ from .storage import (
 )
 
 
-def _obter_canal_navegador() -> Optional[str]:
-    """Detecta se Chrome ou Edge estão instalados no sistema operacional."""
+def _obter_canal_ou_executavel() -> Tuple[Optional[str], Optional[str]]:
+    """
+    Detecta navegador Chrome/Chromium no sistema operacional (Linux e Windows).
+    Retorna (canal, caminho_executavel).
+    """
     import shutil
-    if shutil.which("chrome") or os.path.exists(r"C:\Program Files\Google\Chrome\Application\chrome.exe") or os.path.exists(r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"):
-        return "chrome"
-    if shutil.which("msedge") or os.path.exists(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe") or os.path.exists(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"):
-        return "msedge"
-    return None
+
+    # 1. Caminhos explícitos comuns no Linux / Debian / Docker
+    linux_paths = [
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/snap/bin/chromium"
+    ]
+    for lp in linux_paths:
+        if os.path.exists(lp):
+            return None, lp
+
+    # 2. Caminhos comuns no Windows
+    win_paths = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+    ]
+    for wp in win_paths:
+        if os.path.exists(wp):
+            return None, wp
+
+    # 3. Verificação no PATH via shutil.which
+    for b in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome"):
+        w = shutil.which(b)
+        if w:
+            return None, w
+
+    for b in ("msedge", "edge"):
+        w = shutil.which(b)
+        if w:
+            return "msedge", None
+
+    return None, None
+
+
+def _ensure_playwright_chromium_installed() -> bool:
+    """Executa 'playwright install chromium' programaticamente caso o binário esteja ausente."""
+    import sys
+    import subprocess
+    try:
+        cmd = [sys.executable, "-m", "playwright", "install", "chromium"]
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+def _capturar_evidencia_http_fallback(
+    url: str,
+    timestamp_id: int,
+    observacoes: str = ""
+) -> Tuple[Optional[EvidenciaForense], Optional[str]]:
+    """
+    Fallback resiliente: baixa o DOM completo via HTTP, extrai metadados OpenGraph,
+    título e texto puro, calcula hash SHA-256 e gera a evidência forense.
+    """
+    import urllib.request
+    from urllib.parse import urlparse
+
+    html_path = os.path.join(_SNAPSHOTS_DIR, f"dom_{timestamp_id}.html")
+    evidencia_id = f"evid_{timestamp_id}"
+
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw_html = resp.read()
+            html_text = raw_html.decode("utf-8", errors="replace")
+
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html_text)
+
+        # Extração básica de título
+        titulo = ""
+        m_title = re.search(r"<title[^>]*>(.*?)</title>", html_text, re.IGNORECASE | re.DOTALL)
+        if m_title:
+            titulo = m_title.group(1).strip()
+        if not titulo:
+            titulo = urlparse(url).netloc or "Evidência Web Capturada"
+
+        # Extração de meta tags e OpenGraph
+        og_meta = {}
+        for m in re.finditer(r'<meta\s+[^>]*?(?:property|name)=["\']([^"\']+)["\'][^>]*?content=["\']([^"\']*)["\']', html_text, re.IGNORECASE):
+            k, v = m.group(1).lower(), m.group(2)
+            if k.startswith("og:") or k.startswith("twitter:") or k in ("description", "author", "keywords"):
+                og_meta[k] = v
+
+        # Limpeza simples de tags HTML para texto
+        texto_limpo = re.sub(r"<script[^>]*>.*?</script>", " ", html_text, flags=re.DOTALL | re.IGNORECASE)
+        texto_limpo = re.sub(r"<style[^>]*>.*?</style>", " ", texto_limpo, flags=re.DOTALL | re.IGNORECASE)
+        texto_limpo = re.sub(r"<[^>]+>", " ", texto_limpo)
+        texto_limpo = re.sub(r"\s+", " ", texto_limpo).strip()
+
+        sha256_hash = calcular_sha256_arquivo(html_path)
+
+        obs_completa = (observacoes + " [Modo Fallback HTTP: Snapshot DOM & Metadados Forenses]").strip()
+
+        evidencia = EvidenciaForense(
+            id=evidencia_id,
+            url_alvo=url,
+            titulo_pagina=titulo,
+            texto_extraido=texto_limpo[:10000],
+            screenshot_path=None,
+            html_snapshot_path=html_path,
+            hash_sha256=sha256_hash,
+            observacoes=obs_completa,
+            metadados_opengraph=og_meta
+        )
+        salvar_evidencia(evidencia)
+        return evidencia, None
+    except Exception as e_http:
+        return None, f"Erro ao capturar URL via Playwright e Fallback HTTP: {e_http}"
 
 
 def capturar_evidencia_url(
@@ -51,24 +168,45 @@ def capturar_evidencia_url(
     screenshot_path = os.path.join(_MEDIA_DIR, screenshot_file)
     html_path = os.path.join(_SNAPSHOTS_DIR, snapshot_html_file)
 
-    canal = _obter_canal_navegador()
+    canal, exec_path = _obter_canal_ou_executavel()
 
     try:
         with sync_playwright() as p:
-            # Lança navegador com o canal disponível (Chrome do sistema por padrão)
             launch_args = {
                 "headless": True,
                 "args": [
                     "--disable-blink-features=AutomationControlled",
                     "--disable-infobars",
                     "--no-sandbox",
-                    "--disable-setuid-sandbox"
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu"
                 ]
             }
-            if canal:
+            if exec_path:
+                launch_args["executable_path"] = exec_path
+            elif canal:
                 launch_args["channel"] = canal
 
-            browser = p.chromium.launch(**launch_args)
+            browser = None
+            try:
+                browser = p.chromium.launch(**launch_args)
+            except Exception as e_launch:
+                err_str = str(e_launch)
+                if "Executable doesn't exist" in err_str or "playwright install" in err_str or "launch" in err_str:
+                    installed = _ensure_playwright_chromium_installed()
+                    if installed:
+                        try:
+                            clean_args = dict(launch_args)
+                            clean_args.pop("channel", None)
+                            clean_args.pop("executable_path", None)
+                            browser = p.chromium.launch(**clean_args)
+                        except Exception:
+                            browser = None
+
+            if not browser:
+                return _capturar_evidencia_http_fallback(url, timestamp_id, observacoes=observacoes)
+
             context = browser.new_context(
                 viewport={"width": 1280, "height": 900},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -79,8 +217,7 @@ def capturar_evidencia_url(
             # Navega até a página
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            except Exception as e_nav:
-                # Se falhar domcontentloaded estrito, tenta prosseguir se algo foi renderizado
+            except Exception:
                 pass
 
             # Aguarda carregamento de scripts dinâmicos
@@ -110,7 +247,6 @@ def capturar_evidencia_url(
                 body = page.query_selector("body")
                 if body:
                     texto_extraido = body.inner_text()
-                    # Normaliza quebras de linha excessivas
                     texto_extraido = re.sub(r"\n{3,}", "\n\n", texto_extraido).strip()
             except Exception:
                 texto_extraido = ""
@@ -118,8 +254,7 @@ def capturar_evidencia_url(
             # Captura de Screenshot Forense
             try:
                 page.screenshot(path=screenshot_path, full_page=full_page)
-            except Exception as e_shot:
-                # Fallback para viewport simples se full_page falhar
+            except Exception:
                 try:
                     page.screenshot(path=screenshot_path, full_page=False)
                 except Exception:
@@ -135,8 +270,9 @@ def capturar_evidencia_url(
 
             browser.close()
 
-    except Exception as e_browser:
-        return None, f"Erro ao executar navegador headless: {e_browser}"
+    except Exception:
+        # Em caso de qualquer falha no Playwright, executa fallback gracioso
+        return _capturar_evidencia_http_fallback(url, timestamp_id, observacoes=observacoes)
 
     # Calcula Hash SHA-256 do arquivo de screenshot para garantia de custódia
     sha256_hash = ""
