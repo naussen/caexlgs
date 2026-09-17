@@ -9,6 +9,16 @@ import urllib.request
 from datetime import datetime
 from typing import Optional, Tuple
 import instaloader
+# Injeta suporte a certificados do Windows se truststore estiver disponível
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 from .models import PerfilOSINT, PostOSINT, MidiaItem
 from .storage import (
     _MEDIA_DIR,
@@ -34,18 +44,20 @@ def sanitizar_username(username_ou_url: str) -> str:
 def coletar_perfil_instagram(
     alvo: str,
     max_posts: int = 6,
-    download_midias: bool = True
+    download_midias: bool = True,
+    sessionid: Optional[str] = None
 ) -> Tuple[Optional[PerfilOSINT], Optional[str]]:
     """
-    Coleta os metadados de um perfil público do Instagram e suas postagens recentes.
-    Salva localmente as fotos e cria registros com hash de integridade.
+    Coleta os metadados de um perfil do Instagram e suas postagens recentes.
+    Suporta autenticação via cookie 'sessionid' para evitar bloqueios de 401/Login da Meta.
+    Salva localmente as fotos e cria registros com hash de integridade SHA-256.
     """
     ensure_storage_dirs()
     username = sanitizar_username(alvo)
     if not username:
         return None, "Nome de usuário do Instagram inválido ou vazio."
 
-    # Configuração do Instaloader sem login
+    # Configuração do Instaloader
     L = instaloader.Instaloader(
         download_pictures=False,
         download_videos=False,
@@ -54,19 +66,45 @@ def coletar_perfil_instagram(
         download_comments=False,
         save_metadata=False,
         compress_json=False,
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     )
+
+    # Configuração de sessão e SSL tolerante para proxies corporativos
+    try:
+        L.context._session.verify = False
+    except Exception:
+        pass
+
+    # Injeção de sessão logada se fornecida
+    if sessionid and str(sessionid).strip():
+        sid_clean = str(sessionid).strip()
+        L.context._session.cookies.set("sessionid", sid_clean, domain=".instagram.com")
+        L.context._session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "X-IG-App-ID": "936619743392459"
+        })
 
     try:
         profile = instaloader.Profile.from_username(L.context, username)
     except instaloader.ProfileNotExistsException:
         return None, f"O perfil '@{username}' não foi encontrado no Instagram."
     except instaloader.LoginRequiredException:
-        return None, f"O Instagram exigiu login para acessar o perfil '@{username}'. Tente novamente mais tarde ou use a Captura Forense de URL."
+        return None, (
+            f"O Instagram bloqueou o acesso anônimo ao perfil '@{username}'. "
+            "A Meta exige login para ler perfis via API. Insira seu cookie 'sessionid' "
+            "na barra de autenticação ou utilize a 'Captura Forense (Playwright)' para capturar a página diretamente."
+        )
     except instaloader.ConnectionException as ce:
+        ce_str = str(ce)
+        if "401" in ce_str or "require_login" in ce_str or "wait a few minutes" in ce_str:
+            return None, (
+                f"O Instagram exigiu login para o perfil '@{username}' (Bloqueio 401 da Meta). "
+                "Para coletar via Instaloader, forneça o cookie 'sessionid' de uma conta de auditoria, "
+                "ou utilize a aba 'Captura Forense (Playwright)' que renderiza o navegador real sem bloqueio de API."
+            )
         return None, f"Erro de conexão com o Instagram: {ce}"
     except Exception as e:
-        return None, f"Falha inesperada ao consultar perfil '@{username}': {e}"
+        return None, f"Falha ao consultar perfil '@{username}': {e}"
 
     # Salva foto do avatar
     avatar_local_path = None

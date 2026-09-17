@@ -16,6 +16,8 @@ from . import (
     excluir_evidencia,
     gerar_pacote_zip,
     gerar_dossie_pdf_evidencia,
+    sanitizar_username,
+    gerar_dorks_investigativas,
     EvidenciaForense
 )
 
@@ -37,19 +39,43 @@ def render_osint_screen():
         "compulsoriamente a CNPJs ou CPFs nesta fase."
     )
 
-    tab_insta, tab_forense, tab_mencoes, tab_cofre = st.tabs([
-        "📸 Instagram (Instaloader)",
+    tab_insta, tab_forense, tab_dorks, tab_mencoes, tab_cofre = st.tabs([
+        "📸 Instagram (Instaloader & Playwright)",
         "🖥️ Captura Forense de URL (Playwright)",
-        "🕸️ Raspagem em Fóruns/Redes (snscrape)",
+        "🌐 LinkedIn & Facebook (X-Ray OSINT)",
+        "🕸️ Fóruns & Telegram (snscrape)",
         "📂 Cofre de Evidências & Histórico"
     ])
 
     # ==========================================================
-    # ABA 1: INSTAGRAM (INSTALOADER)
+    # ABA 1: INSTAGRAM (INSTALOADER & PLAYWRIGHT)
     # ==========================================================
     with tab_insta:
         st.subheader("📸 Coleta de Perfil & Publicações do Instagram")
-        st.caption("Extrai dados cadastrais de perfil público, bio, contagem de seguidores e baixa publicações com metadados.")
+        st.caption("Extrai dados cadastrais de perfil, contagem de seguidores, mídias e posts com integridade SHA-256.")
+
+        with st.expander("🔑 Autenticação de Auditoria & Perfis Fechados (Guia Pericial)", expanded=False):
+            st.markdown("""
+            **Como contornar o Bloqueio 401 da Meta (Login Required):**
+            A Meta bloqueou consultas anônimas via API. Para permitir que o Instaloader baixe publicações e fotos em lote:
+            1. No seu navegador, faça login em uma conta de pesquisa/auditoria no Instagram.
+            2. Pressione `F12` > aba **Application** (ou **Armazenamento**) > **Cookies** > `https://www.instagram.com`.
+            3. Copie o valor do cookie **`sessionid`** e cole abaixo.
+            
+            **Perfis Fechados (Privados):**
+            - Por segurança e criptografia no servidor da Meta, contas fechadas **não entregam dados para quem não é seguidor aprovado**.
+            - Se a sua conta de auditoria for seguidora aceita pelo investigado, o `sessionid` permitirá baixar **100% dos posts e carrosséis**.
+            - Para perfis fechados sem autorização, acesse a aba **"🌐 LinkedIn & Facebook (X-Ray OSINT)"** para pesquisar **menções e tags indiretas (@alvo)** em postagens abertas de terceiros.
+            """)
+            insta_sid_input = st.text_input(
+                "Cookie sessionid do Instagram (Opcional - evita bloqueio 401 da Meta e acessa perfis autorizados):",
+                type="password",
+                placeholder="Cole seu sessionid aqui...",
+                key="input_insta_sid",
+                value=st.session_state.get("insta_sessionid_saved", "")
+            )
+            if insta_sid_input:
+                st.session_state.insta_sessionid_saved = insta_sid_input
 
         col_in1, col_in2, col_in3 = st.columns([3, 1.5, 1.5])
         with col_in1:
@@ -68,11 +94,29 @@ def render_osint_screen():
         download_media = st.checkbox("Baixar imagens e miniaturas localmente para custódia", value=True, key="chk_insta_media")
 
         if btn_insta and insta_target:
-            with st.spinner(f"Consultando perfil '{insta_target}' via Instaloader..."):
-                perfil, erro = coletar_instagram(insta_target, max_posts=int(max_posts), download_midias=download_media)
+            with st.spinner(f"Consultando perfil '{insta_target}'..."):
+                perfil, erro = coletar_instagram(
+                    insta_target,
+                    max_posts=int(max_posts),
+                    download_midias=download_media,
+                    sessionid=st.session_state.get("insta_sessionid_saved")
+                )
 
             if erro and not perfil:
                 st.error(erro)
+                # Oferece alternativa imediata via Playwright
+                clean_u = sanitizar_username(insta_target)
+                insta_url = f"https://www.instagram.com/{clean_u}/"
+                st.info("💡 **Alternativa de Captura:** Deseja capturar a página deste perfil pelo navegador real (Playwright)? O navegador renderiza a tela completa com fotos e gera a certidão com hash SHA-256.")
+                if st.button(f"📸 Capturar '@{clean_u}' via Navegador Headless", key=f"btn_play_fallback_{clean_u}"):
+                    with st.spinner(f"Renderizando {insta_url} no navegador headless..."):
+                        ev_insta, err_instaplay = capturar_url_forense(insta_url, wait_seconds=3, observacoes=f"Captura do perfil @{clean_u}")
+                        if ev_insta:
+                            st.success("Captura forense realizada com sucesso!")
+                            st.session_state.ultima_evidencia_id = ev_insta.id
+                            st.rerun()
+                        else:
+                            st.error(err_instaplay)
             elif perfil:
                 if erro:
                     st.warning(f"Aviso da coleta: {erro}")
@@ -252,7 +296,122 @@ def render_osint_screen():
                         st.text_area("Texto:", evid_match['texto_extraido'][:2500], height=350, key="txt_extraido_view")
 
     # ==========================================================
-    # ABA 3: RASPAGEM EM REDES E FÓRUNS (SNSCRAPE)
+    # ABA 3: LINKEDIN & FACEBOOK (X-RAY OSINT & MENÇÕES CRUZADAS)
+    # ==========================================================
+    with tab_dorks:
+        st.subheader("🌐 Investigação em Redes: LinkedIn, Facebook e Menções Cruzadas")
+        st.caption("Gera consultas X-Ray de alta precisão para localizar perfis profissionais, páginas comerciais, sócios e menções a contas fechadas sem bloqueio de login.")
+
+        c_d1, c_d2 = st.columns(2)
+        with c_d1:
+            dork_nome = st.text_input("Nome da Pessoa / Sócio:", placeholder="Ex: Fulano de Tal", key="dork_input_nome")
+            dork_empresa = st.text_input("Nome da Empresa / Razão Social:", placeholder="Ex: Alfa Empreendimentos", key="dork_input_empresa")
+        with c_d2:
+            dork_cnpj = st.text_input("CNPJ (opcional):", placeholder="Ex: 12.345.678/0001-90", key="dork_input_cnpj")
+            c_cid, c_uf = st.columns([3, 1])
+            with c_cid:
+                dork_cidade = st.text_input("Cidade (opcional):", placeholder="Ex: São Paulo", key="dork_input_cidade")
+            with c_uf:
+                dork_uf = st.text_input("UF:", placeholder="SP", key="dork_input_uf")
+
+        if dork_nome or dork_empresa or dork_cnpj:
+            catalogo = gerar_dorks_investigativas(
+                nome_alvo=dork_nome,
+                empresa=dork_empresa,
+                cnpj=dork_cnpj,
+                cidade=dork_cidade,
+                uf=dork_uf
+            )
+
+            sub_lk, sub_fb, sub_ig, sub_jur = st.tabs([
+                "👔 LinkedIn (Profissional & Societário)",
+                "👥 Facebook (Empresas & Perfis)",
+                "📸 Instagram Cruzado (Perfis Fechados & Tags)",
+                "⚖️ Diários Oficiais & Bases Jurídicas"
+            ])
+
+            with sub_lk:
+                st.markdown("#### 👔 Consultas Direcionadas no LinkedIn")
+                st.caption("Identifique cargos atuais, histórico profissional, empresas anteriores e página corporativa oficial.")
+                for item in catalogo.get("linkedin", []):
+                    with st.container(border=True):
+                        st.markdown(f"**{item['titulo']}**")
+                        st.caption(item["descricao"])
+                        st.code(item["query"], language="text")
+                        c_link1, c_link2 = st.columns(2)
+                        with c_link1:
+                            st.link_button("↗ Abrir Consulta no Google", item["google_url"], use_container_width=True)
+                        with c_link2:
+                            st.link_button("↗ Abrir Consulta no Bing", item["bing_url"], use_container_width=True)
+
+            with sub_fb:
+                st.markdown("#### 👥 Consultas Direcionadas no Facebook")
+                st.caption("Localize páginas de estabelecimentos, denúncias de consumidores e menções diretas ao CNPJ.")
+                for item in catalogo.get("facebook", []):
+                    with st.container(border=True):
+                        st.markdown(f"**{item['titulo']}**")
+                        st.caption(item["descricao"])
+                        st.code(item["query"], language="text")
+                        c_link1, c_link2 = st.columns(2)
+                        with c_link1:
+                            st.link_button("↗ Abrir Consulta no Google", item["google_url"], use_container_width=True)
+                        with c_link2:
+                            st.link_button("↗ Abrir Consulta no Bing", item["bing_url"], use_container_width=True)
+
+            with sub_ig:
+                st.markdown("#### 📸 Técnica de OSINT Cruzado para Instagram")
+                st.markdown("""
+                > **Estratégia para Perfis Fechados:** Quando a conta do investigado for privada, pesquise as **menções em perfis abertos** (`@nome_do_alvo`) e postagens de terceiros, sócios, eventos ou parceiros comerciais que o marcaram publicamente.
+                """)
+                for item in catalogo.get("instagram_cruzado", []):
+                    with st.container(border=True):
+                        st.markdown(f"**{item['titulo']}**")
+                        st.caption(item["descricao"])
+                        st.code(item["query"], language="text")
+                        c_link1, c_link2 = st.columns(2)
+                        with c_link1:
+                            st.link_button("↗ Abrir Consulta no Google", item["google_url"], use_container_width=True)
+                        with c_link2:
+                            st.link_button("↗ Abrir Consulta no Bing", item["bing_url"], use_container_width=True)
+
+            with sub_jur:
+                st.markdown("#### ⚖️ Consulta em Diários Oficiais & Bases Jurídicas")
+                for item in catalogo.get("juridico_oficial", []):
+                    with st.container(border=True):
+                        st.markdown(f"**{item['titulo']}**")
+                        st.caption(item["descricao"])
+                        st.code(item["query"], language="text")
+                        c_link1, c_link2 = st.columns(2)
+                        with c_link1:
+                            st.link_button("↗ Abrir Consulta no Google", item["google_url"], use_container_width=True)
+                        with c_link2:
+                            st.link_button("↗ Abrir Consulta no Bing", item["bing_url"], use_container_width=True)
+
+            st.divider()
+            st.write("#### 📸 Encontrou uma URL relevante? Capture com Fé Pública Digital:")
+            st.caption("O Playwright renderiza a página web, extrai o conteúdo do DOM, gera o print e calcula o Hash SHA-256 com Laudo PDF.")
+            c_url_c, c_url_b = st.columns([4, 1.5])
+            with c_url_c:
+                url_descoberta = st.text_input("Cole a URL do perfil do LinkedIn, post do Facebook ou Instagram:", placeholder="https://...", key="input_url_dork_capture")
+            with c_url_b:
+                st.write("")
+                st.write("")
+                btn_capt_dork = st.button("📸 Capturar com Playwright", key="btn_exec_dork_play", use_container_width=True)
+
+            if btn_capt_dork and url_descoberta:
+                with st.spinner("Lançando navegador, renderizando página e gerando custódia SHA-256..."):
+                    ev_d, err_d = capturar_url_forense(url_descoberta, wait_seconds=3, observacoes=f"Evidência de rede social: {url_descoberta}")
+                    if ev_d:
+                        st.success(f"Captura realizada com sucesso! ID: {ev_d.id}")
+                        st.session_state.ultima_evidencia_id = ev_d.id
+                        st.rerun()
+                    else:
+                        st.error(err_d)
+        else:
+            st.info("💡 Preencha o nome do sócio ou da empresa acima para gerar as consultas X-Ray de inteligência.")
+
+    # ==========================================================
+    # ABA 4: RASPAGEM EM REDES E FÓRUNS (SNSCRAPE)
     # ==========================================================
     with tab_mencoes:
         st.subheader("🕸️ Raspagem de Menções Públicas e Fóruns (snscrape)")

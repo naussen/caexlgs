@@ -26,7 +26,8 @@ from .osint_service import (
     obter_perfil,
     listar_evidencias_salvas,
     gerar_pacote_zip,
-    gerar_dossie_pdf_evidencia
+    gerar_dossie_pdf_evidencia,
+    gerar_dorks_investigativas
 )
 from .ui import render_osint_screen
 

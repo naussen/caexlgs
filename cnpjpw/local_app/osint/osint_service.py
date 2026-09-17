@@ -18,15 +18,17 @@ from .storage import (
 from .instaloader_client import coletar_perfil_instagram
 from .playwright_client import capturar_evidencia_url
 from .snscrape_client import pesquisar_redes_termo
+from .dorks_client import gerar_dorks_investigativas
 
 
 def coletar_instagram(
     alvo: str,
     max_posts: int = 6,
-    download_midias: bool = True
+    download_midias: bool = True,
+    sessionid: Optional[str] = None
 ) -> Tuple[Optional[PerfilOSINT], Optional[str]]:
-    """Executa a coleta de perfil e mídias públicas do Instagram."""
-    return coletar_perfil_instagram(alvo, max_posts=max_posts, download_midias=download_midias)
+    """Executa a coleta de perfil e mídias do Instagram (com ou sem cookie de sessão)."""
+    return coletar_perfil_instagram(alvo, max_posts=max_posts, download_midias=download_midias, sessionid=sessionid)
 
 
 def capturar_url_forense(
