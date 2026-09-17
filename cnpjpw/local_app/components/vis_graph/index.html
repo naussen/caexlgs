@@ -1153,11 +1153,27 @@
 
       const options = args.options || {
         nodes: {
-          font: { size: 12, face: 'Roboto, Segoe UI, sans-serif' },
+          font: {
+            size: 13,
+            face: 'Roboto, Segoe UI, sans-serif',
+            color: '#1A237E',
+            strokeWidth: 3,
+            strokeColor: '#FFFFFF',
+            multi: 'html'
+          },
           borderWidth: 2,
           shadow: true
         },
         edges: {
+          font: {
+            size: 10,
+            face: 'Roboto, Segoe UI, sans-serif',
+            color: '#37474F',
+            strokeWidth: 2,
+            strokeColor: '#FFFFFF',
+            align: 'middle',
+            background: 'rgba(255, 255, 255, 0.88)'
+          },
           smooth: { type: 'continuous', roundness: 0.25 },
           shadow: false
         },
@@ -1330,16 +1346,63 @@
 
     function exportImage() {
       if (!network) return;
-      network.fit({ animation: false });
+      showGraphToast('📸 Gerando imagem com fundo branco e máxima nitidez...');
+
+      // Preserva a visualização e coordenadas atuais do analista
+      const prevScale = network.getScale();
+      const prevPosition = network.getViewPosition();
+
+      // Ajusta o enquadramento de todos os nós com margem de segurança
+      network.fit({
+        animation: false
+      });
+
       setTimeout(function() {
-        const canvas = canvasContainer.getElementsByTagName('canvas')[0];
-        if (canvas) {
+        try {
+          const sourceCanvas = canvasContainer.getElementsByTagName('canvas')[0];
+          if (!sourceCanvas) return;
+
+          // Cria canvas secundário com fundo sólido
+          const outCanvas = document.createElement('canvas');
+          outCanvas.width = sourceCanvas.width;
+          outCanvas.height = sourceCanvas.height;
+          const ctx = outCanvas.getContext('2d');
+
+          // 1. FUNDO BRANCO SÓLIDO (#FFFFFF)
+          // Essencial: elimina fundo escuro/preto ao abrir o PNG em visualizadores com modo escuro
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+
+          // 2. Desenha o grafo com todos os nós e arestas sobre o fundo branco
+          ctx.drawImage(sourceCanvas, 0, 0);
+
+          // 3. Cabeçalho discreto de auditoria
+          ctx.fillStyle = '#1A237E';
+          ctx.font = 'bold 13px "Segoe UI", Roboto, sans-serif';
+          ctx.fillText('🛡️ POMELO / CAEXLGS — Grafo de Relacionamentos Societários & Risco', 20, 26);
+
+          ctx.fillStyle = '#78909C';
+          ctx.font = '10px "Segoe UI", Roboto, sans-serif';
+          const nowStr = new Date().toLocaleString('pt-BR');
+          ctx.fillText('Exportado em: ' + nowStr, 20, 42);
+
+          // 4. Download da imagem em PNG
           const link = document.createElement('a');
           link.download = 'grafo_relacionamentos.png';
-          link.href = canvas.toDataURL('image/png');
+          link.href = outCanvas.toDataURL('image/png');
           link.click();
+          showGraphToast('✅ Grafo exportado com sucesso em alta nitidez (Fundo Branco)!');
+        } catch (e) {
+          console.error("Erro ao exportar imagem:", e);
+        } finally {
+          // Restaura imediatamente a visualização do analista
+          network.moveTo({
+            position: prevPosition,
+            scale: prevScale,
+            animation: false
+          });
         }
-      }, 300);
+      }, 350);
     }
 
     window.addEventListener("message", function(event) {

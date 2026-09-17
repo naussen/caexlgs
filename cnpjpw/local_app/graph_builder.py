@@ -374,7 +374,13 @@ def build_graph_elements(
                 },
                 "size": size,
                 "shape": shape,
-                "font": {"color": "#212121", "size": 12, "face": "Roboto, Segoe UI, sans-serif"},
+                "font": {
+                    "color": "#1A237E",
+                    "size": 13,
+                    "face": "Roboto, Segoe UI, sans-serif",
+                    "strokeWidth": 3,
+                    "strokeColor": "#FFFFFF"
+                },
                 "shadow": True,
                 "_type": "CONTABILIDADE" if (is_acct and node_type != "EMPRESA_ROOT") else node_type,
                 "_raw_label": label,
@@ -442,7 +448,15 @@ def build_graph_elements(
                 "color": {"color": COLOR_EDGE_MANUAL, "highlight": "#FF1744"},
                 "width": 3,
                 "dashes": [6, 4],
-                "font": {"color": COLOR_EDGE_MANUAL, "size": 11, "bold": True, "align": "middle"},
+                "font": {
+                    "color": COLOR_EDGE_MANUAL,
+                    "size": 11,
+                    "bold": True,
+                    "align": "middle",
+                    "strokeWidth": 2,
+                    "strokeColor": "#FFFFFF",
+                    "background": "rgba(255, 255, 255, 0.88)"
+                },
                 "_type": rel_type
             }
         elif custom_color:
@@ -453,7 +467,14 @@ def build_graph_elements(
                 "color": {"color": custom_color, "highlight": custom_color},
                 "width": 2,
                 "dashes": [4, 4] if dashes else False,
-                "font": {"color": custom_color, "size": 10, "align": "middle"},
+                "font": {
+                    "color": custom_color,
+                    "size": 10,
+                    "align": "middle",
+                    "strokeWidth": 2,
+                    "strokeColor": "#FFFFFF",
+                    "background": "rgba(255, 255, 255, 0.88)"
+                },
                 "_type": rel_type
             }
         else:
@@ -463,7 +484,14 @@ def build_graph_elements(
                 "label": clean_label,
                 "color": {"color": COLOR_EDGE_AUTO, "highlight": "#37474F"},
                 "width": 1.5,
-                "font": {"color": "#546E7A", "size": 10, "align": "middle"},
+                "font": {
+                    "color": "#37474F",
+                    "size": 10,
+                    "align": "middle",
+                    "strokeWidth": 2,
+                    "strokeColor": "#FFFFFF",
+                    "background": "rgba(255, 255, 255, 0.88)"
+                },
                 "_type": rel_type
             }
 
