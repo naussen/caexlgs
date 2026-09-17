@@ -160,6 +160,116 @@ def get_relationship_type(label: str = "", manual: bool = False, custom_type: st
         return "SOCIETARIO"
     return lbl.upper() if lbl else "CONEXAO"
 
+
+def extract_company_details(comp: dict) -> dict:
+    """Extrai campos cadastrais padronizados para exibição na janela pop-up do grafo."""
+    if not isinstance(comp, dict):
+        return {}
+
+    cnpj_raw = str(comp.get('cnpj') or comp.get('cnpj_completo') or comp.get('cnpj_basico') or '')
+    cnpj_dig = "".join(filter(str.isdigit, cnpj_raw))
+    if len(cnpj_dig) == 14:
+        cnpj_fmt = f"{cnpj_dig[:2]}.{cnpj_dig[2:5]}.{cnpj_dig[5:8]}/{cnpj_dig[8:12]}-{cnpj_dig[12:]}"
+    else:
+        cnpj_fmt = cnpj_raw
+
+    tels = []
+    d1 = comp.get('ddd1') or comp.get('ddd_1') or ''
+    t1 = comp.get('telefone_1') or comp.get('telefone1') or ''
+    if d1 and t1:
+        tels.append(f"({d1}) {t1}")
+    elif t1:
+        tels.append(str(t1))
+    d2 = comp.get('ddd2') or comp.get('ddd_2') or ''
+    t2 = comp.get('telefone_2') or comp.get('telefone2') or ''
+    if d2 and t2:
+        tels.append(f"({d2}) {t2}")
+    elif t2:
+        tels.append(str(t2))
+    if comp.get('telefone') and comp.get('telefone') not in tels:
+        tels.append(str(comp.get('telefone')))
+
+    emails = []
+    for em_k in ('correio_eletronico', 'email', 'e_mail'):
+        em_val = comp.get(em_k)
+        if em_val and isinstance(em_val, str) and em_val.strip():
+            for e in em_val.split(','):
+                e_clean = e.strip().lower()
+                if e_clean and e_clean not in emails:
+                    emails.append(e_clean)
+
+    end_parts = []
+    logr = comp.get('logradouro') or ""
+    if logr.strip():
+        end_parts.append(logr.strip())
+    if comp.get('numero'):
+        end_parts.append(f"nº {comp.get('numero')}")
+    if comp.get('complemento'):
+        end_parts.append(str(comp.get('complemento')))
+    if comp.get('bairro'):
+        end_parts.append(f"Bairro {comp.get('bairro')}")
+    mun = comp.get('municipio') or comp.get('municipio_nome') or ''
+    uf = comp.get('uf') or comp.get('sigla_uf') or ''
+    if mun or uf:
+        end_parts.append(f"{mun}/{uf}".strip('/'))
+    if comp.get('cep'):
+        end_parts.append(f"CEP: {comp.get('cep')}")
+    endereco_completo = ", ".join(end_parts)
+
+    socios_fmt = []
+    for s in comp.get('socios', []):
+        if isinstance(s, dict):
+            s_nome = s.get('nome') or 'Não informado'
+            s_qual = s.get('qualificacao_descricao') or s.get('qualificacao_socio_descricao') or s.get('qualificacao') or 'Sócio'
+            s_doc = s.get('cnpj_cpf') or s.get('cpf_cnpj') or s.get('doc') or s.get('cpf') or ''
+            socios_fmt.append({
+                "nome": s_nome,
+                "qualificacao": s_qual,
+                "doc": s_doc,
+                "data_entrada": str(s.get('data_entrada_sociedade') or s.get('data_entrada') or '')
+            })
+
+    cap = comp.get('capital_social')
+    cap_fmt = ""
+    if cap is not None:
+        try:
+            cap_val = float(cap)
+            cap_fmt = f"R$ {cap_val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            cap_fmt = str(cap)
+
+    return {
+        "tipo_entidade": "EMPRESA",
+        "cnpj": cnpj_fmt,
+        "cnpj_digitos": cnpj_dig,
+        "razao_social": comp.get('nome_empresarial') or comp.get('razao_social') or '',
+        "nome_fantasia": comp.get('nome_fantasia') or '',
+        "situacao_cadastral": (comp.get('situacao_cadastral_descricao') or comp.get('situacao_cadastral') or 'ATIVA').upper(),
+        "data_situacao": str(comp.get('data_situacao_cadastral') or comp.get('data_situacao') or ''),
+        "data_abertura": str(comp.get('data_inicio_atividade') or comp.get('data_abertura') or ''),
+        "data_extincao": str(comp.get('data_situacao_especial') or comp.get('data_exclusao_simples') or ''),
+        "cnae_codigo": str(comp.get('cnae_fiscal_principal') or comp.get('cnae') or ''),
+        "cnae_descricao": str(comp.get('cnae_fiscal_principal_descricao') or comp.get('cnae_descricao') or ''),
+        "natureza_juridica": str(comp.get('natureza_juridica_descricao') or comp.get('natureza_juridica') or ''),
+        "capital_social": cap_fmt,
+        "endereco": endereco_completo,
+        "telefones": tels,
+        "emails": emails,
+        "socios": socios_fmt
+    }
+
+
+def extract_socio_details(nome: str, doc: str, qualif: str = "Sócio", empresas_vinculadas: list = None) -> dict:
+    """Extrai campos para exibição de sócio na janela pop-up."""
+    return {
+        "tipo_entidade": "SOCIO",
+        "nome": nome,
+        "documento": doc or "Não informado",
+        "qualificacao": qualif,
+        "empresas_vinculadas": empresas_vinculadas or []
+    }
+
+
 def build_graph_elements(
     root_data: dict,
     socios_empresas: dict = None,
@@ -222,7 +332,8 @@ def build_graph_elements(
         node_type: str = "OUTRO",
         border_color: str = None,
         raw_val: str = "",
-        cnae: str = ""
+        cnae: str = "",
+        details: dict = None
     ) -> bool:
         if not node_id or node_id in excluded_nodes:
             return False
@@ -268,9 +379,14 @@ def build_graph_elements(
                 "_type": "CONTABILIDADE" if (is_acct and node_type != "EMPRESA_ROOT") else node_type,
                 "_raw_label": label,
                 "_raw_val": raw_val or node_id,
-                "_is_accountant": is_acct
+                "_is_accountant": is_acct,
+                "_details": details or {}
             }
         else:
+            # Se o nó já existe, atualiza _details se ainda não preenchido
+            if details and not nodes_dict[node_id].get("_details"):
+                nodes_dict[node_id]["_details"] = details
+
             # Se o nó já existe, promove para UBO se for o caso
             existing = nodes_dict[node_id]
             if node_type == "UBO" and existing.get("_type") == "SOCIO":
@@ -388,7 +504,8 @@ def build_graph_elements(
         shape="dot",
         node_type="EMPRESA_ROOT",
         raw_val=root_cnpj,
-        cnae=root_data.get('cnae_fiscal_principal') or ""
+        cnae=root_data.get('cnae_fiscal_principal') or "",
+        details=extract_company_details(root_data)
     )
 
     # 2. Resolução Estrita de Pessoas Físicas (CPF + Nome)
@@ -456,9 +573,36 @@ def build_graph_elements(
             size=24 if is_ubo else 21,
             shape="dot",
             node_type="UBO" if is_ubo else "SOCIO",
-            raw_val=nome_socio
+            raw_val=nome_socio,
+            details=extract_socio_details(nome_socio, doc, qualif, [root_name])
         ):
             add_edge(root_id, socio_id, label=qualif[:16])
+
+        # Se o sócio direto for PJ (ex: AS PARTICIPACOES LTDA) e tiver seus próprios sócios carregados
+        doc_digits = "".join(filter(str.isdigit, str(doc)))
+        if len(doc_digits) == 14:
+            for s_pj in s.get('socios', []):
+                if not isinstance(s_pj, dict):
+                    continue
+                s_pj_nome = (s_pj.get('nome') or "").strip()
+                if not s_pj_nome:
+                    continue
+                s_pj_qual = s_pj.get('qualificacao_descricao') or "Sócio"
+                s_pj_doc = s_pj.get('cnpj_cpf') or s_pj.get('cpf_cnpj') or s_pj.get('doc') or ""
+                s_pj_id = resolve_socio_node(s_pj_nome, s_pj_doc, s_pj_qual)
+                s_pj_tooltip = f"<b>👤 {s_pj_nome}</b><br>Sócio de: {nome_socio}<br>Qualificação: {s_pj_qual}<br>Doc: {s_pj_doc or 'Não informado'}"
+                if add_node(
+                    s_pj_id,
+                    label=s_pj_nome[:18] + ("..." if len(s_pj_nome) > 18 else ""),
+                    title=s_pj_tooltip,
+                    color=COLOR_SOCIO,
+                    size=20,
+                    shape="dot",
+                    node_type="SOCIO",
+                    raw_val=s_pj_nome,
+                    details=extract_socio_details(s_pj_nome, s_pj_doc, s_pj_qual, [nome_socio])
+                ):
+                    add_edge(socio_id, s_pj_id, label=s_pj_qual[:16])
 
     # 3. Sócios e Empresas Expandidas (Itera sobre TODOS os sócios em socios_empresas)
     for s_nome, emp_list in socios_empresas.items():
@@ -482,7 +626,8 @@ def build_graph_elements(
             size=24 if is_ubo else 21,
             shape="dot",
             node_type="UBO" if is_ubo else "SOCIO",
-            raw_val=s_nome_clean
+            raw_val=s_nome_clean,
+            details=extract_socio_details(s_nome_clean, doc_cached, "Sócio")
         )
 
         for emp in (emp_list or []):
@@ -495,6 +640,7 @@ def build_graph_elements(
             if emp_id == root_id or (root_cnpj_digits and emp_cnpj_digits == root_cnpj_digits):
                 continue
 
+            emp_details = extract_company_details(emp)
             emp_sit = (emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
             is_emp_risk = enable_risk_highlight and (emp_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
             emp_color = COLOR_EMPRESA_RISK if is_emp_risk else COLOR_EMPRESA_LINK
@@ -509,7 +655,7 @@ def build_graph_elements(
             if is_emp_risk:
                 emp_tooltip += f"<br><font color='#D32F2F'><b>⚠️ ALERTA: Situação {emp_sit}</b></font>"
 
-            if add_node(
+            add_node(
                 emp_id,
                 label=f"{emp_prefix}{emp_nome[:18]}" + ("..." if len(emp_nome) > 18 else ""),
                 title=emp_tooltip,
@@ -518,9 +664,63 @@ def build_graph_elements(
                 shape="dot",
                 node_type="EMPRESA",
                 raw_val=emp_cnpj,
-                cnae=emp.get('cnae_fiscal_principal') or ""
-            ):
-                add_edge(s_id, emp_id, label="Participação")
+                cnae=emp.get('cnae_fiscal_principal') or "",
+                details=emp_details
+            )
+            add_edge(s_id, emp_id, label="Participação")
+
+            # NOVO: Item 1.1, 1.2 e 1.3 - Adicionar outros sócios de cada empresa ramificada
+            for es in emp.get('socios', []):
+                if not isinstance(es, dict):
+                    continue
+                es_nome = (es.get('nome') or "").strip()
+                if not es_nome:
+                    continue
+                es_qualif = es.get('qualificacao_descricao') or es.get('qualificacao_socio_descricao') or "Sócio"
+                es_doc = es.get('cnpj_cpf') or es.get('cpf_cnpj') or es.get('doc') or es.get('cpf') or ""
+                es_doc_digits = re.sub(r"[^\d]", "", str(es_doc))
+
+                # Caso 1: Sócio PJ (Pessoa Jurídica)
+                if len(es_doc_digits) == 14:
+                    pj_node_id = f"cnpj_{es_doc_digits}"
+                    if pj_node_id == root_id or (root_cnpj_digits and es_doc_digits == root_cnpj_digits):
+                        add_edge(root_id, emp_id, label=es_qualif[:16])
+                    elif pj_node_id in nodes_dict:
+                        add_edge(pj_node_id, emp_id, label=es_qualif[:16])
+                    else:
+                        add_node(
+                            pj_node_id,
+                            label=es_nome[:18] + ("..." if len(es_nome) > 18 else ""),
+                            title=f"<b>🏢 {es_nome}</b><br>CNPJ: {es_doc_digits}<br>Sócio PJ de: {emp_nome}",
+                            color=COLOR_EMPRESA_LINK,
+                            size=24,
+                            shape="dot",
+                            node_type="EMPRESA",
+                            raw_val=es_doc_digits,
+                            details={"tipo_entidade": "EMPRESA", "cnpj": es_doc_digits, "razao_social": es_nome}
+                        )
+                        add_edge(pj_node_id, emp_id, label=es_qualif[:16])
+                    continue
+
+                # Caso 2: Sócio PF (Pessoa Física) com resolução estrita por Nome + CPF parcial (***123456**)
+                es_id = resolve_socio_node(es_nome, es_doc, es_qualif)
+                is_es_ubo = es_nome.lower() in ubo_names
+                es_color = COLOR_UBO if is_es_ubo else COLOR_SOCIO
+                es_prefix = "👑 " if is_es_ubo else ""
+                es_tooltip = f"<b>👤 {es_nome}</b><br>Sócio de: {emp_nome}<br>Qualificação: {es_qualif}<br>Doc: {es_doc or 'Não informado'}"
+
+                if add_node(
+                    es_id,
+                    label=f"{es_prefix}{es_nome[:18]}" + ("..." if len(es_nome) > 18 else ""),
+                    title=es_tooltip,
+                    color=es_color,
+                    size=22 if is_es_ubo else 20,
+                    shape="dot",
+                    node_type="UBO" if is_es_ubo else "SOCIO",
+                    raw_val=es_nome,
+                    details=extract_socio_details(es_nome, es_doc, es_qualif, [emp_nome])
+                ):
+                    add_edge(emp_id, es_id, label=es_qualif[:16])
 
     # 4. E-mails e Telefones da Raiz
     email = root_data.get('correio_eletronico')
@@ -719,6 +919,9 @@ def build_graph_elements(
         if ext_id == root_id or (root_cnpj_digits and ext_cnpj_digits == root_cnpj_digits):
             continue
 
+        if not isinstance(ext_emp, dict):
+            continue
+
         ext_nome = ext_emp.get('nome_empresarial') or ext_emp.get('razao_social') or f"CNPJ {ext_cnpj}"
         ext_sit = (ext_emp.get('situacao_cadastral_descricao') or 'ATIVA').upper()
         is_ext_risk = enable_risk_highlight and (ext_sit in ('INAPTA', 'BAIXADA', 'SUSPENSA', 'NULA'))
@@ -743,7 +946,8 @@ def build_graph_elements(
             shape="dot",
             node_type="EMPRESA",
             raw_val=ext_cnpj,
-            cnae=ext_emp.get('cnae_fiscal_principal') or ""
+            cnae=ext_emp.get('cnae_fiscal_principal') or "",
+            details=extract_company_details(ext_emp)
         )
 
         # Sócios da empresa expandida (Resolução Estrita de PF)
@@ -762,7 +966,8 @@ def build_graph_elements(
                     size=21,
                     shape="dot",
                     node_type="SOCIO",
-                    raw_val=es_nome
+                    raw_val=es_nome,
+                    details=extract_socio_details(es_nome, es_doc, es_qualif, [ext_nome])
                 )
                 add_edge(ext_id, es_id, label=es_qualif[:16])
 

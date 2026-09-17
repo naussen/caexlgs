@@ -129,19 +129,73 @@ def extract_company_contacts(comp: Dict[str, Any]) -> Tuple[Set[str], Set[str]]:
 # 1. EXPANSÃO DE SÓCIOS ATÉ SEGUNDO GRAU (GRAU 2)
 # =========================================================================
 
+_COMPANIES_DETAILS_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def get_company_full_details(cnpj: str) -> Optional[Dict[str, Any]]:
+    """Obtém ficha cadastral completa com cache em memória."""
+    c_clean = clean_cnpj(cnpj)
+    if not c_clean:
+        return None
+    if c_clean in _COMPANIES_DETAILS_CACHE:
+        return _COMPANIES_DETAILS_CACHE[c_clean]
+    try:
+        resp = data_service.get_cnpj(c_clean)
+        res = resp.results if isinstance(resp, dict) and "results" in resp else resp
+        if isinstance(res, dict) and not res.get("erro"):
+            _COMPANIES_DETAILS_CACHE[c_clean] = res
+            return res
+    except Exception:
+        pass
+    return None
+
+
+def enrich_companies_with_details(companies: List[Dict[str, Any]], max_workers: int = 5) -> List[Dict[str, Any]]:
+    """
+    Enriquece a lista de empresas com dados cadastrais e quadro de sócios (QSA) em paralelo.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    cnpjs_to_fetch = []
+    for c in companies:
+        c_clean = clean_cnpj(c.get("cnpj"))
+        if c_clean and (not c.get("socios") or len(c.get("socios", [])) == 0):
+            if c_clean not in _COMPANIES_DETAILS_CACHE:
+                cnpjs_to_fetch.append(c_clean)
+
+    if cnpjs_to_fetch:
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(cnpjs_to_fetch))) as executor:
+            list(executor.map(get_company_full_details, cnpjs_to_fetch))
+
+    enriched = []
+    for c in companies:
+        c_clean = clean_cnpj(c.get("cnpj"))
+        full_d = _COMPANIES_DETAILS_CACHE.get(c_clean)
+        if full_d:
+            merged = dict(c)
+            for k, v in full_d.items():
+                if v and (k not in merged or not merged[k] or k in ("socios", "cnae_fiscal_principal_descricao", "data_inicio_atividade", "situacao_cadastral_descricao")):
+                    merged[k] = v
+            enriched.append(merged)
+        else:
+            enriched.append(c)
+    return enriched
+
+
 def expand_socios_grau2(
     root_data: Dict[str, Any],
     max_per_partner: int = DEFAULT_MAX_COMPANIES_PER_PARTNER,
-    cache: Optional[Dict[str, List[Dict[str, Any]]]] = None
+    cache: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    enrich_partners: bool = True
 ) -> Tuple[Dict[str, List[Dict[str, Any]]], Dict[str, Any]]:
     """
-    Expande os sócios da empresa raiz até o segundo grau de relacionamento.
+    Expande os sócios da empresa raiz até o segundo grau de relacionamento,
+    com enriquecimento opcional de sócios de cada empresa ramificada.
 
     Definições de Grau:
     - Grau 0: Empresa raiz (root_data).
     - Grau 1: Sócios diretos da raiz (root_data['socios']).
-    - Grau 2: Outras empresas onde os sócios de grau 1 participam.
-    - Grau 3+: NÃO são expandidos nesta operação.
+    - Grau 2: Outras empresas onde os sócios de grau 1 participam e seus respectivos co-sócios.
+    - Grau 3+: Expansão pontual sob demanda.
 
     Regras obrigatórias:
     1. Deduplicação por CNPJ completo (14 dígitos).
@@ -170,7 +224,6 @@ def expand_socios_grau2(
 
     # Rastreia CNPJs já adicionados à rede para deduplicação global
     seen_cnpjs: Set[str] = {root_cnpj} if root_cnpj else set()
-    # Adiciona também CNPJs que já existiam no cache de consultas anteriores
     for prev_comps in cache.values():
         for pc in prev_comps:
             p_cnpj = clean_cnpj(pc.get("cnpj"))
@@ -186,6 +239,13 @@ def expand_socios_grau2(
             continue
 
         doc_socio = socio.get("cnpj_cpf") or socio.get("cpf_cnpj") or socio.get("doc") or socio.get("cpf") or socio.get("documento")
+
+        # Se o sócio direto for PJ (CNPJ com 14 dígitos), assegura carregamento de seus próprios sócios
+        doc_digits = "".join(filter(str.isdigit, str(doc_socio or "")))
+        if len(doc_digits) == 14 and not socio.get("socios"):
+            pj_details = get_company_full_details(doc_digits)
+            if pj_details and pj_details.get("socios"):
+                socio["socios"] = pj_details["socios"]
 
         # Se já estiver em cache, computa estatísticas
         if n_socio in cache:
@@ -223,13 +283,17 @@ def expand_socios_grau2(
 
                 # Regra: Limite configurável por sócio
                 if len(valid_for_partner) >= max_per_partner:
-                    summary["duplicatas_removidas"] += 1  # Excedentes ao teto
+                    summary["duplicatas_removidas"] += 1
                     continue
 
                 if comp_cnpj:
                     seen_cnpjs.add(comp_cnpj)
 
                 valid_for_partner.append(comp)
+
+            # Enriquecimento paralelo com dados cadastrais completos e sócios de cada empresa ramificada
+            if enrich_partners and valid_for_partner:
+                valid_for_partner = enrich_companies_with_details(valid_for_partner)
 
             cache[n_socio] = valid_for_partner
             summary["empresas_adicionadas"] += len(valid_for_partner)

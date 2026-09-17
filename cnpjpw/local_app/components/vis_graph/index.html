@@ -262,6 +262,160 @@
       transition: opacity 0.3s ease;
       pointer-events: none;
     }
+    /* Estilos do Modal Pop-up de Dados Cadastrais */
+    #entity-modal-backdrop {
+      display: none;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(2px);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    #entity-modal-card {
+      background: #ffffff;
+      border-radius: 12px;
+      width: 100%;
+      max-width: 680px;
+      max-height: 90%;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+      border: 1px solid #cfd8dc;
+      animation: modalFadeIn 0.2s ease-out;
+      overflow: hidden;
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .modal-header {
+      padding: 14px 18px;
+      background: #f8f9fa;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .modal-header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      flex: 1;
+    }
+    .badge-status {
+      display: inline-block;
+      align-self: flex-start;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-status-ativa { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+    .badge-status-risk { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+    .badge-status-socio { background: #fff3e0; color: #e65100; border: 1px solid #ffcc80; }
+    .badge-status-ubo { background: #fffde7; color: #f57f17; border: 1px solid #fff59d; }
+    .badge-status-other { background: #eceff1; color: #455a64; border: 1px solid #cfd8dc; }
+    .modal-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a237e;
+      line-height: 1.3;
+    }
+    .modal-subtitle {
+      font-size: 12px;
+      color: #546e7a;
+      font-weight: 500;
+      font-family: monospace;
+    }
+    .modal-close-icon {
+      background: none;
+      border: none;
+      font-size: 18px;
+      color: #78909c;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      transition: all 0.15s ease;
+    }
+    .modal-close-icon:hover {
+      background: #eceff1;
+      color: #263238;
+    }
+    .modal-body {
+      padding: 16px 18px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      font-size: 12px;
+      color: #37474f;
+    }
+    .modal-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px 14px;
+      background: #fafafa;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #f0f0f0;
+    }
+    .modal-grid-item-full {
+      grid-column: span 2;
+    }
+    .modal-field-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: #78909c;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .modal-field-val {
+      font-size: 12px;
+      color: #212121;
+      font-weight: 500;
+      word-break: break-word;
+    }
+    .modal-qsa-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .modal-qsa-table th {
+      background: #f1f5f9;
+      color: #475569;
+      text-align: left;
+      padding: 6px 10px;
+      border-bottom: 1px solid #cbd5e1;
+      font-size: 11px;
+    }
+    .modal-qsa-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
+    }
+    .modal-qsa-table tr:hover {
+      background: #f8fafc;
+    }
+    .modal-footer {
+      padding: 10px 18px;
+      background: #f8f9fa;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
 <body>
@@ -321,7 +475,28 @@
         <button id="node-expand-btn" class="node-action-btn btn-expand-node" title="Expandir relações desta entidade (+)">✚</button>
         <button id="node-delete-btn" class="node-action-btn btn-delete-node" title="Excluir nó da visualização (✕)">✕</button>
       </div>
-      <div id="status-hint">💡 Clique em qualquer nó para copiar CNPJ/Nome e abrir em nova aba. Passe o mouse para ver ações. Arraste livremente.</div>
+      <div id="status-hint">💡 Clique em qualquer entidade para ver a ficha cadastral completa em pop-up. Passe o mouse para ver ações. Arraste livremente.</div>
+
+      <!-- MODAL POP-UP DE DADOS CADASTRAIS DA ENTIDADE -->
+      <div id="entity-modal-backdrop" onclick="handleBackdropClick(event)">
+        <div id="entity-modal-card">
+          <div class="modal-header">
+            <div class="modal-header-left">
+              <span id="modal-badge" class="badge-status badge-status-ativa">ATIVA</span>
+              <h3 id="modal-title" class="modal-title">Razão Social</h3>
+              <div id="modal-subtitle" class="modal-subtitle">CNPJ: -</div>
+            </div>
+            <button class="modal-close-icon" onclick="closeEntityModal()" title="Fechar">✕</button>
+          </div>
+          <div class="modal-body" id="modal-body-content"></div>
+          <div class="modal-footer">
+            <button id="modal-btn-expand" class="btn btn-primary" onclick="modalExpandCurrentEntity()" title="Expandir relações desta entidade na rede">✚ Expandir na Rede</button>
+            <button id="modal-btn-copy" class="btn" onclick="modalCopyCurrentEntity()" title="Copiar CNPJ ou documento">📋 Copiar Dado</button>
+            <button id="modal-btn-open-tab" class="btn" onclick="modalOpenTabCurrentEntity()" title="Abrir ficha completa em nova aba">↗️ Abrir em Nova Aba</button>
+            <button class="btn" onclick="closeEntityModal()" style="margin-left:auto;">✕ Fechar</button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -377,6 +552,249 @@
         toast.style.opacity = '0';
         setTimeout(function() { toast.style.display = 'none'; }, 300);
       }, 2800);
+    }
+
+    // Controle e Manipulação do Modal Pop-up de Dados Cadastrais
+    let modalCurrentNodeId = null;
+
+    function handleBackdropClick(event) {
+      if (event.target && event.target.id === 'entity-modal-backdrop') {
+        closeEntityModal();
+      }
+    }
+
+    function closeEntityModal() {
+      const backdrop = document.getElementById('entity-modal-backdrop');
+      if (backdrop) backdrop.style.display = 'none';
+      modalCurrentNodeId = null;
+    }
+
+    function modalExpandCurrentEntity() {
+      if (modalCurrentNodeId) {
+        expandNode(modalCurrentNodeId);
+        closeEntityModal();
+      }
+    }
+
+    function modalCopyCurrentEntity() {
+      if (!modalCurrentNodeId || !nodesDataSet) return;
+      const nodeObj = nodesDataSet.get(modalCurrentNodeId);
+      const copyVal = getEntityCopyValue(nodeObj);
+      if (copyVal) {
+        copyToClipboard(copyVal);
+        showGraphToast('📋 Copiado: ' + copyVal);
+      }
+    }
+
+    function modalOpenTabCurrentEntity() {
+      if (!modalCurrentNodeId || !nodesDataSet) return;
+      const nodeObj = nodesDataSet.get(modalCurrentNodeId);
+      const url = getEntityDetailsUrl(nodeObj);
+      if (url) {
+        window.open(url, '_blank');
+        showGraphToast('↗️ Ficha aberta em nova aba: ' + (nodeObj.label || modalCurrentNodeId));
+      } else {
+        showGraphToast('ℹ️ Esta entidade não possui ficha independente para abertura.');
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function showEntityModal(nodeId) {
+      if (!nodesDataSet) return;
+      const nodeObj = nodesDataSet.get(nodeId);
+      if (!nodeObj) return;
+
+      modalCurrentNodeId = nodeId;
+      const backdrop = document.getElementById('entity-modal-backdrop');
+      const badgeEl = document.getElementById('modal-badge');
+      const titleEl = document.getElementById('modal-title');
+      const subEl = document.getElementById('modal-subtitle');
+      const bodyEl = document.getElementById('modal-body-content');
+      const tabBtnEl = document.getElementById('modal-btn-open-tab');
+
+      if (!backdrop || !badgeEl || !titleEl || !subEl || !bodyEl) return;
+
+      const d = nodeObj._details || {};
+      const nt = String(nodeObj._type || '').toUpperCase();
+      const isEmpresa = nt.includes('EMPRESA') || d.tipo_entidade === 'EMPRESA';
+      const isSocio = nt.includes('SOCIO') || nt.includes('UBO') || d.tipo_entidade === 'SOCIO';
+
+      const tabUrl = getEntityDetailsUrl(nodeObj);
+      if (tabBtnEl) tabBtnEl.style.display = tabUrl ? 'inline-flex' : 'none';
+
+      let htmlBody = '';
+
+      if (isEmpresa) {
+        const sit = (d.situacao_cadastral || 'ATIVA').toUpperCase();
+        let badgeClass = 'badge-status badge-status-ativa';
+        if (sit !== 'ATIVA') badgeClass = 'badge-status badge-status-risk';
+
+        badgeEl.className = badgeClass;
+        badgeEl.textContent = sit;
+        titleEl.textContent = d.razao_social || nodeObj.label || nodeId;
+        subEl.textContent = 'CNPJ: ' + (d.cnpj || nodeObj._raw_val || 'Não informado');
+
+        htmlBody += '<div class="modal-grid">';
+
+        if (d.nome_fantasia) {
+          htmlBody += '<div class="modal-grid-item modal-grid-item-full">' +
+                      '<div class="modal-field-label">Nome Fantasia</div>' +
+                      '<div class="modal-field-val"><b>' + escapeHtml(d.nome_fantasia) + '</b></div>' +
+                      '</div>';
+        }
+
+        htmlBody += '<div class="modal-grid-item">' +
+                    '<div class="modal-field-label">Situação Cadastral</div>' +
+                    '<div class="modal-field-val">' + escapeHtml(sit) + (d.data_situacao ? ' <span style="color:#78909c;">(desde ' + escapeHtml(d.data_situacao) + ')</span>' : '') + '</div>' +
+                    '</div>';
+
+        htmlBody += '<div class="modal-grid-item">' +
+                    '<div class="modal-field-label">Data de Constituição / Abertura</div>' +
+                    '<div class="modal-field-val">' + escapeHtml(d.data_abertura || 'Não informada') + '</div>' +
+                    '</div>';
+
+        if (d.data_extincao && d.data_extincao.trim() && d.data_extincao !== 'None') {
+          htmlBody += '<div class="modal-grid-item">' +
+                      '<div class="modal-field-label">Data de Extinção / Sit. Especial</div>' +
+                      '<div class="modal-field-val" style="color:#c62828;">' + escapeHtml(d.data_extincao) + '</div>' +
+                      '</div>';
+        }
+
+        if (d.capital_social) {
+          htmlBody += '<div class="modal-grid-item">' +
+                      '<div class="modal-field-label">Capital Social</div>' +
+                      '<div class="modal-field-val">' + escapeHtml(d.capital_social) + '</div>' +
+                      '</div>';
+        }
+
+        if (d.cnae_codigo || d.cnae_descricao) {
+          htmlBody += '<div class="modal-grid-item modal-grid-item-full">' +
+                      '<div class="modal-field-label">Atividade Econômica Principal (CNAE)</div>' +
+                      '<div class="modal-field-val"><b>' + escapeHtml(d.cnae_codigo || '') + '</b> — ' + escapeHtml(d.cnae_descricao || 'Não informada') + '</div>' +
+                      '</div>';
+        }
+
+        if (d.natureza_juridica) {
+          htmlBody += '<div class="modal-grid-item modal-grid-item-full">' +
+                      '<div class="modal-field-label">Natureza Jurídica</div>' +
+                      '<div class="modal-field-val">' + escapeHtml(d.natureza_juridica) + '</div>' +
+                      '</div>';
+        }
+
+        if (d.endereco) {
+          htmlBody += '<div class="modal-grid-item modal-grid-item-full">' +
+                      '<div class="modal-field-label">Endereço Cadastral</div>' +
+                      '<div class="modal-field-val">📍 ' + escapeHtml(d.endereco) + '</div>' +
+                      '</div>';
+        }
+
+        const telsStr = (d.telefones && d.telefones.length > 0) ? d.telefones.join(' • ') : '';
+        if (telsStr) {
+          htmlBody += '<div class="modal-grid-item">' +
+                      '<div class="modal-field-label">Telefone(s)</div>' +
+                      '<div class="modal-field-val">📞 ' + escapeHtml(telsStr) + '</div>' +
+                      '</div>';
+        }
+
+        const emailsStr = (d.emails && d.emails.length > 0) ? d.emails.join(' • ') : '';
+        if (emailsStr) {
+          htmlBody += '<div class="modal-grid-item">' +
+                      '<div class="modal-field-label">E-mail(s)</div>' +
+                      '<div class="modal-field-val">✉️ ' + escapeHtml(emailsStr) + '</div>' +
+                      '</div>';
+        }
+
+        htmlBody += '</div>'; // fecha modal-grid
+
+        // Seção Quadro Societário (QSA)
+        const sociosList = d.socios || [];
+        htmlBody += '<div style="margin-top:10px;">';
+        htmlBody += '<div style="font-size:13px; font-weight:700; color:#1a237e; margin-bottom:6px; display:flex; align-items:center; gap:6px;">' +
+                    '<span>👥 Quadro de Sócios e Administradores (QSA)</span>' +
+                    '<span style="background:#e8eaf6; color:#283593; font-size:11px; padding:1px 6px; border-radius:10px;">' + sociosList.length + ' sócio(s)</span>' +
+                    '</div>';
+
+        if (sociosList.length > 0) {
+          htmlBody += '<div style="max-height:200px; overflow-y:auto; border:1px solid #e0e0e0; border-radius:6px;">';
+          htmlBody += '<table class="modal-qsa-table">';
+          htmlBody += '<thead><tr><th>Nome do Sócio</th><th>Qualificação</th><th>Documento</th></tr></thead><tbody>';
+          for (let i = 0; i < sociosList.length; i++) {
+            const s = sociosList[i];
+            htmlBody += '<tr>' +
+                        '<td><b>' + escapeHtml(s.nome || '-') + '</b></td>' +
+                        '<td>' + escapeHtml(s.qualificacao || 'Sócio') + '</td>' +
+                        '<td><code style="background:#eceff1; padding:2px 4px; border-radius:3px;">' + escapeHtml(s.doc || 'Não informado') + '</code></td>' +
+                        '</tr>';
+          }
+          htmlBody += '</tbody></table></div>';
+        } else {
+          htmlBody += '<div style="background:#f5f5f5; padding:8px 12px; border-radius:6px; color:#616161; font-size:11px;">' +
+                      'ℹ️ Sócios detalhados não carregados nesta visualização. Clique em "✚ Expandir na Rede" para carregar as conexões.' +
+                      '</div>';
+        }
+        htmlBody += '</div>';
+
+      } else if (isSocio) {
+        const isUbo = nt.includes('UBO');
+        badgeEl.className = isUbo ? 'badge-status badge-status-ubo' : 'badge-status badge-status-socio';
+        badgeEl.textContent = isUbo ? '👑 BENEFICIÁRIO FINAL (UBO)' : '👤 SÓCIO / ADMINISTRADOR';
+        titleEl.textContent = d.nome || nodeObj.label || nodeId;
+        subEl.textContent = 'Documento: ' + (d.documento || 'Não informado');
+
+        htmlBody += '<div class="modal-grid">';
+        htmlBody += '<div class="modal-grid-item">' +
+                    '<div class="modal-field-label">Nome Completo</div>' +
+                    '<div class="modal-field-val"><b>' + escapeHtml(d.nome || nodeObj.label || '') + '</b></div>' +
+                    '</div>';
+
+        htmlBody += '<div class="modal-grid-item">' +
+                    '<div class="modal-field-label">Documento (CPF Parcial / CNPJ)</div>' +
+                    '<div class="modal-field-val"><code style="background:#eceff1; padding:2px 6px; border-radius:3px;">' + escapeHtml(d.documento || 'Não informado') + '</code></div>' +
+                    '</div>';
+
+        htmlBody += '<div class="modal-grid-item">' +
+                    '<div class="modal-field-label">Qualificação / Papel</div>' +
+                    '<div class="modal-field-val">' + escapeHtml(d.qualificacao || 'Sócio') + '</div>' +
+                    '</div>';
+
+        if (d.empresas_vinculadas && d.empresas_vinculadas.length > 0) {
+          htmlBody += '<div class="modal-grid-item modal-grid-item-full">' +
+                      '<div class="modal-field-label">Empresas Conhecidas na Rede</div>' +
+                      '<div class="modal-field-val">🏢 ' + escapeHtml(d.empresas_vinculadas.join(', ')) + '</div>' +
+                      '</div>';
+        }
+        htmlBody += '</div>';
+
+        htmlBody += '<div style="margin-top:10px; background:#fff3e0; border:1px solid #ffe0b2; padding:10px; border-radius:6px; font-size:11px; color:#e65100;">' +
+                    '💡 <b>Dica:</b> Para buscar e adicionar todas as outras empresas deste sócio ao grafo, clique em <b>"✚ Expandir na Rede"</b> abaixo.' +
+                    '</div>';
+
+      } else {
+        // Outros nós (Telefone, E-mail, Endereço)
+        badgeEl.className = 'badge-status badge-status-other';
+        badgeEl.textContent = nt || 'CONTATO';
+        titleEl.textContent = nodeObj.label || nodeId;
+        subEl.textContent = 'Identificador: ' + (nodeObj._raw_val || nodeId);
+
+        htmlBody += '<div class="modal-grid">';
+        htmlBody += '<div class="modal-grid-item modal-grid-item-full">' +
+                    '<div class="modal-field-label">Valor / Informação</div>' +
+                    '<div class="modal-field-val"><b>' + escapeHtml(nodeObj._raw_val || nodeObj.label || '') + '</b></div>' +
+                    '</div>';
+        htmlBody += '</div>';
+      }
+
+      bodyEl.innerHTML = htmlBody;
+      backdrop.style.display = 'flex';
     }
 
     // Extração do valor canônico para cópia (CNPJ para empresas, Nome para PF)
@@ -686,6 +1104,9 @@
       });
 
       document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+          closeEntityModal();
+        }
         if ((e.key === 'Delete' || e.key === 'Backspace') && network) {
           const sel = network.getSelectedNodes();
           if (sel && sel.length > 0) {
@@ -805,26 +1226,13 @@
             const nodeObj = nodesDataSet.get(activeTargetNode);
 
             if (nodeObj) {
-              // REQUISITO 3: Copiar automaticamente CNPJ ou Nome Completo
+              // REQUISITO 2: Exibir janela pop up com DADOS DA EMPRESA/ENTIDADE (sem abrir nova aba!)
+              showEntityModal(activeTargetNode);
+
+              // Copia valor para a área de transferência
               const copyVal = getEntityCopyValue(nodeObj);
               if (copyVal) {
                 copyToClipboard(copyVal);
-              }
-
-              // REQUISITO 4: Abrir automaticamente em nova aba sem fechar o grafo
-              const tabUrl = getEntityDetailsUrl(nodeObj);
-              let tabOpened = false;
-              if (tabUrl) {
-                try {
-                  const newWin = window.open(tabUrl, '_blank');
-                  if (newWin) tabOpened = true;
-                } catch(e) {}
-              }
-
-              if (tabOpened) {
-                showGraphToast('📋 Copiado & ↗️ Aberto em nova aba: ' + copyVal);
-              } else if (copyVal) {
-                showGraphToast('📋 Copiado para a área de transferência: ' + copyVal);
               }
 
               sendValue({
