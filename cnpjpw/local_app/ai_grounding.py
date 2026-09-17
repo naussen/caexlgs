@@ -101,40 +101,61 @@ ANOTAÇÕES PRÉVIAS DO INVESTIGADOR:
     return contexto
 
 
+SYSTEM_PERICIAL_PROMPT = (
+    "Você é um Auditor Forense Sênior e Analista Pericial de Inteligência Societária e Patrimonial. "
+    "Sua redação é BRUTALMENTE TÉCNICA, ASSÉPTICA E PRAGMÁTICA. "
+    "DIRETRIZES FUNDAMENTAIS:\n"
+    "1. JAMAIS UTILIZAR ADJETIVOS QUALIFICATIVOS OU MORAIS (ex: 'fraudulento', 'severo', 'veemente', 'espúrio', 'escuso', 'ardiloso', 'fantasma', 'laranja', 'manobra').\n"
+    "2. JAMAIS EMITIR CONSTATAÇÕES DE JUÍZO PRELIMINARES OU CONCLUSÕES DEFINITIVAS DE CULPA/DOLO (ex: jamais dizer 'restou comprovada a fraude', 'restou evidente a confusão patrimonial').\n"
+    "3. TRABALHAR EXCLUSIVAMENTE COM INFERÊNCIAS TÉCNICAS E HIPÓTESES INVESTIGATIVAS (ex: 'os dados cadastrais sugerem a inferência de...', 'trabalha-se com a hipótese fática de...').\n"
+    "4. FUNDAMENTAR OBRIGATORIAMENTE CADA PONTO EM RELAÇÕES CONCRETAS E QUANTIDADES NUMÉRICAS (quantitativo de empresas, número de sócios em comum, valores de capital social, contagem de CNPJs por endereço, datas e temporalidade).\n"
+    "5. SUBSUNÇÃO JURÍDICA PURAMENTE HIPOTÉTICA nos dispositivos legais aplicáveis (Art. 50 do Código Civil, Lei 13.874/2019, Art. 133 a 137 do CPC, Art. 28 do CDC, Súmula 513/STJ)."
+)
+
+
 def construir_prompt_forense(contexto_investigativo: str) -> str:
-    """Monta o prompt para o modelo atuar como perito forense e jurista."""
-    return f"""Você é um Perito Forense Sênior e Especialista Jurídico em Investigação Patrimonial, Combate a Fraudes Societárias e Recuperação de Ativos no Direito Brasileiro.
+    """Monta o prompt para o modelo atuar de forma brutalmente técnica, pragmática e relacional."""
+    return f"""Elabore um LAUDO TÉCNICO-PERICIAL E SÍNTESE RELACIONAL INVESTIGATIVA sobre a malha societária abaixo.
 
-Com base nos dados extraídos e auditados da empresa alvo e de sua rede de relacionamentos, elabore um PARECER TÉCNICO-ARGUMENTATIVO DE EMBASAMENTO FORENSE E JURÍDICO rigoroso, formal e fundamentado, pronto para instruir processos judiciais, medidas cautelares ou procedimentos de investigação fiscal/patrimonial.
+REGRAS MANDATÓRIAS DE REDAÇÃO (O NÃO CUMPRIMENTO INVALIDA O LAUDO):
+1. PROIBIÇÃO ABSOLUTA DE ADJETIVOS E JUÍZOS MORAIS/SUBJETIVOS:
+   - Proibido usar adjetivos como "severo", "contundente", "veemente", "fraudulento", "ilícito", "criminoso", "ardiloso", "fantasma", "laranja", "espúrio", "escuso".
+   - Use exclusivamente vocabulário asséptico, neutro e descritivo.
 
-DADOS DO CASO:
+2. PROIBIÇÃO DE CONSTATAÇÕES DE JUÍZO PRELIMINARES OU CONCLUSÕES ANTECIPADAS:
+   - Jamais declare fatos litigiosos como verdades consumadas (proibido dizer "restou comprovada a fraude", "restou evidente a confusão patrimonial").
+   - Trate todos os achados como INFERÊNCIAS ANALÍTICAS e HIPÓTESES INVESTIGATIVAS ("os registros indicam a inferência técnica de...", "subsidia-se a hipótese fática de...", "sustenta-se a suposição relacional sujeita a confirmação probatória in loco").
+
+3. FUNDAMENTAÇÃO OBRIGATÓRIA POR RELAÇÕES E QUANTIDADES (PRAGMATISMO BRUTAL):
+   - TODA assertiva deve obrigatoriamente referenciar grandezas quantitativas e dados objetivos:
+     * Quantidade de empresas interligadas (N empresas no raio de varredura);
+     * Quantidade de sócios em comum e percentuais de participação;
+     * Valor numérico exato do Capital Social (R$ ...) frente ao código CNAE de atuação;
+     * Quantidade de CNPJs cadastrados no mesmo logradouro/número;
+     * Temporalidade (diferença em anos/meses entre datas de abertura e situação cadastral ativa versus baixada).
+   - Enquadrar cada hipótese fática estritamente nos dispositivos legais correlatos (Art. 50, § 2º, incisos I e III do Código Civil, Art. 133 a 137 do CPC, Art. 28, § 2º do CDC, Súmula 513/STJ).
+
+DADOS AUDITADOS DO CASO:
 {contexto_investigativo}
 
-ESTRUTURA OBRIGATÓRIA DO PARECER:
-1. SÍNTESE DO OBJETO E IDENTIFICAÇÃO DO ALVO
-- Apresentação formal da sociedade, regularidade cadastral e conformidade aparente do capital social em relação ao ramo de atuação.
+ESTRUTURAÇÃO DO LAUDO (EM MARKDOWN TÉCNICO):
+1. IDENTIFICAÇÃO DO ALVO E DADOS QUANTITATIVOS
+- Razão social, CNPJ, situação cadastral, capital social declarado vs. escopo de atividade do CNAE e temporalidade da constituição.
 
-2. ANÁLISE DE VÍNCULOS SOCIETÁRIOS E BENEFICIÁRIOS FINAIS
-- Avaliação da cadeia societária, presença de interpostas pessoas ("laranjas"), concentração ou diluição de controle e identificação dos beneficiários econômicos reais.
+2. MAPEAMENTO RELACIONAL SOCIETÁRIO E TITULARIDADE ECONÔMICA FINAL (UBO)
+- Quantitativo de sócios (PF e PJ), estrutura em camadas intermediárias e convergência do controle societário final para os beneficiários econômicos apurados.
 
-3. MATRIZ DE RISCO, TIPOLOGIAS DE FRAUDE E FUNDAMENTAÇÃO LEGAL
-- Análise de indicadores de grupo econômico de fato, confusão patrimonial, promiscuidade de endereços ou desvio de finalidade.
-- Fundamentação expressa nos dispositivos legais pertinentes:
-  * Artigo 50 do Código Civil (Desconsideração da Personalidade Jurídica direta e inversa - Lei da Liberdade Econômica nº 13.874/2019).
-  * Artigo 28 do Código de Defesa do Consumidor e Artigo 14 da Lei Anticorrupção (Lei nº 12.846/2013), se cabível.
-  * Artigo 133 a 137 do Código de Processo Civil (Incidente de Desconsideração da Personalidade Jurídica - IDPJ).
-  * Jurisprudência consolidada do Superior Tribunal de Justiça (STJ), incluindo Súmula 513/STJ e teses sobre grupo econômico sem subordinação formal.
+3. HIPÓTESES INVESTIGATIVAS FÁTICAS E SUBSUNÇÃO NORMATIVA
+- Correlações de domicílio fiscal (quantitativo exato de CNPJs no mesmo endereço sem segregação de instalações formalmente averbada);
+- Correlações temporais (coexistência temporal entre sociedades baixadas/inaptas e sociedades operantes sob gestão idêntica);
+- Hipótese técnica de configuração de grupo econômico sob coordenação unificada;
+- Enquadramento normativo cabível como hipótese de incidência do Art. 50 do Código Civil (confusão patrimonial ou desvio de finalidade) e Art. 28 do CDC.
 
-4. RECOMENDAÇÕES ESTRATÉGICAS DE MEDIDAS PROCESSUAIS E CAUTELARES
-- Ações sugeridas para constrição e efetividade da execução/investigação (ex.: penhora de faturamento, indisponibilidade via CNIB/SISBAJUD/RENAJUD, quebra de sigilo bancário/fiscal, arrolamento de bens ou bloqueio de cotas sociais das empresas conexas).
+4. MEDIDAS PRAGMÁTICAS DE INSTRUÇÃO PROBATÓRIA E CONSTRIÇÃO SUGERIDAS
+- Diligências práticas quantitativas recomendadas (mandado de constatação física in loco, consulta financeira via SISBAJUD, levantamento de bens via RENAJUD/CNIB, análise de livros contábeis ECD/ECF).
 
-5. CONCLUSÃO PERICIAL
-- Síntese taxativa sobre a viabilidade de extensão da responsabilidade patrimonial aos sócios, administradores ou sociedades do mesmo grupo econômico.
-
-REGRAS:
-- Redija em português formal, tom pericial objetivo, claro e fundamentado.
-- Não invente fatos externos, apenas interprete com profundidade jurídica e técnica os dados apresentados.
-- Use formatação Markdown clara com tópicos organizados.
+5. SÍNTESE DAS INFERÊNCIAS TÉCNICAS
+- Quadro resumo pragmático e asséptico das inferências traçadas com base estrita nos dados relacionais e quantitativos examinados.
 """
 
 
@@ -146,11 +167,14 @@ def _chamar_gemini(api_key: str, prompt: str, model_name: str = GEMINI_DEFAULT_M
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     payload = {
+        "systemInstruction": {
+            "parts": [{"text": SYSTEM_PERICIAL_PROMPT}]
+        },
         "contents": [{
             "parts": [{"text": prompt}]
         }],
         "generationConfig": {
-            "temperature": 0.2,
+            "temperature": 0.1,
             "maxOutputTokens": 3000
         }
     }
@@ -188,10 +212,10 @@ def _chamar_groq(api_key: str, prompt: str, model_name: str = GROQ_DEFAULT_MODEL
     payload = {
         "model": model_name,
         "messages": [
-            {"role": "system", "content": "Você é um perito forense sênior e jurista em recuperação de ativos e direito societário."},
+            {"role": "system", "content": SYSTEM_PERICIAL_PROMPT},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.2,
+        "temperature": 0.1,
         "max_tokens": 3000
     }
     
@@ -228,10 +252,10 @@ def _chamar_openrouter(api_key: str, prompt: str, model_name: str = OPENROUTER_D
     payload = {
         "model": model_name,
         "messages": [
-            {"role": "system", "content": "Você é um perito forense sênior e jurista em recuperação de ativos e direito societário."},
+            {"role": "system", "content": SYSTEM_PERICIAL_PROMPT},
             {"role": "user", "content": prompt}
         ],
-        "temperature": 0.2,
+        "temperature": 0.1,
         "max_tokens": 3000
     }
     
@@ -339,7 +363,7 @@ def gerar_fundamentacao_dossie_ia(
 
     # Se teve sucesso com IA:
     if success and result_text:
-        header = f"[PARECER FORENSE GERADO VIA IA - {provider_used.upper()}]\n\n"
+        header = f"[LAUDO TÉCNICO-RELACIONAL VIA IA - {provider_used.upper()}]\n\n"
         return {
             "success": True,
             "provider": provider_used,
@@ -367,7 +391,7 @@ def gerar_fundamentacao_dossie_ia(
         )
         local_text = local_result.get("texto_integral", "")
         reason = "Chave de API não informada" if not (k_gemini or k_groq or k_openrouter) else f"Falha na API ({'; '.join(error_details)})"
-        header = f"[FUNDAMENTAÇÃO GERADA PELO MOTOR FORENSE LOCAL (Modo Offline / Fallback: {reason})]\n\n"
+        header = f"[LAUDO TÉCNICO-RELACIONAL - MOTOR FORENSE LOCAL (Modo Offline / Fallback: {reason})]\n\n"
         return {
             "success": True,
             "provider": "Motor Forense Local (Offline / Determinístico)",

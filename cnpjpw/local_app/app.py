@@ -954,10 +954,11 @@ elif st.session_state.view == 'DETAILS':
                     st.write("#### 📑 Emissão de Relatório e Dossiê Consolidado")
                     st.caption("Exporte todos os vínculos, indicadores de risco, quadro societário e fundamentação pericial em formato profissional.")
                     
-                    with st.expander("🤖 Configurações do Assistente de IA para Fundamentação Jurídica (API Grátis)", expanded=False):
+                    with st.expander("⚙️ Configurações do Assistente de IA Pericial (API Grátis)", expanded=False):
                         st.markdown("""
-                        O assistente utiliza modelos de linguagem com foco pericial para fundamentar a desconsideração da personalidade jurídica
-                        (**Art. 50 do Código Civil, Lei 12.846/13 e Súmula 513/STJ**), cruzar indícios de confusão patrimonial e sugerir medidas cautelares.
+                        O assistente opera sob diretrizes **estritamente técnicas, assépticas e pragmáticas (sem adjetivos valorativos ou juízos preliminares)**, 
+                        estruturando inferências analíticas com base em grandezas quantitativas (empresas vinculadas, sócios, temporalidade, coincidência de domicílios) 
+                        e subsunção normativa hipotética (**Art. 50 do Código Civil, Lei 13.874/19, CPC arts. 133 a 137 e Art. 28 do CDC**).
                         
                         **Opções de API 100% Gratuitas:**
                         * 🌟 **Google Gemini Free Tier (Recomendado):** [Obter Chave Grátis no Google AI Studio](https://aistudio.google.com/app/apikey) (15 req/min sem custo).
@@ -991,15 +992,15 @@ elif st.session_state.view == 'DETAILS':
                     col_arg1, col_arg2 = st.columns([3, 2])
                     with col_arg1:
                         st.session_state.investigation_notes = st.text_area(
-                            "Parecer Técnico & Embasamento Jurídico da Investigação:",
+                            "Laudo Técnico-Relacional & Inferências Investigativas:",
                             value=st.session_state.investigation_notes,
-                            placeholder="Insira aqui as conclusões ou clique nos botões ao lado para gerar a minuta com embasamento pericial e jurisprudencial...",
+                            placeholder="Insira aqui as anotações do caso ou acione os botões ao lado para gerar o laudo relacional e subsunção normativa fundamentada em dados quantitativos...",
                             height=160
                         )
                     with col_arg2:
                         st.write("")
-                        if st.button("🤖 Gerar Fundamentação & Embasamento com IA", key="btn_gen_ai_dossier", use_container_width=True, type="primary"):
-                            with st.spinner("Analisando grupo econômico, matriz de risco e elaborando parecer com IA..."):
+                        if st.button("🤖 Gerar Laudo Relacional & Hipóteses com IA", key="btn_gen_ai_dossier", use_container_width=True, type="primary"):
+                            with st.spinner("Analisando malha societária, cruzando correlações quantitativas e elaborando laudo pericial com IA..."):
                                 ai_res = ai_grounding.gerar_fundamentacao_dossie_ia(
                                     root_data=dados,
                                     all_companies=all_cluster_companies,
@@ -1013,13 +1014,13 @@ elif st.session_state.view == 'DETAILS':
                                 )
                                 st.session_state.investigation_notes = ai_res.get("texto_integral", "")
                                 if ai_res.get("used_ai"):
-                                    st.success(f"Fundamentação elaborada com sucesso via {ai_res.get('provider')}!")
+                                    st.success(f"Laudo técnico elaborado com sucesso via {ai_res.get('provider')}!")
                                 else:
-                                    st.info(f"Fundamentação gerada via {ai_res.get('provider')}. {ai_res.get('fallback_reason', '')}")
+                                    st.info(f"Laudo gerado via {ai_res.get('provider')}. {ai_res.get('fallback_reason', '')}")
                                 st.rerun()
 
-                        if st.button("⚖️ Minuta Padrão Local (Sem IA)", key="btn_gen_arg_logic", use_container_width=True):
-                            with st.spinner("Estruturando fundamentação técnico-jurídica determinística..."):
+                        if st.button("⚖️ Minuta Técnica Local (Sem IA)", key="btn_gen_arg_logic", use_container_width=True):
+                            with st.spinner("Estruturando análise técnica relacional determinística..."):
                                 arg_dict = report_generator.build_argumentative_dossier(
                                     root_data=dados,
                                     all_companies=all_cluster_companies,

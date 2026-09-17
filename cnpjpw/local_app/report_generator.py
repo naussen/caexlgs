@@ -67,104 +67,101 @@ def build_argumentative_dossier(
         if len(comps) >= 2:
             shared_clusters.append((lbl, len(comps)))
 
-    # 1. Tese de Grupo Econômico de Fato & Unidade Gerencial
+    # 1. Inferência de Coordenação e Hipótese de Grupo Econômico
     tese_grupo = (
-        f"A análise da malha societária revela a existência de um consistente Grupo Econômico de Fato "
-        f"articulado em torno de {root_name} (CNPJ: {root_cnpj}), congregando um cluster com {total_comps} empresas "
-        f"e {total_socios} sócios interligados. A identidade ou comunhão do núcleo diretivo e decisório "
-        f"evidencia direção unificada e coordenação de interesses operacionais e financeiros comuns, "
-        f"ultrapassando os limites da mera autonomia formal de cada pessoa jurídica."
+        f"A correlação da malha societária indica a conformação relacional de grupo econômico "
+        f"em torno de {root_name} (CNPJ: {root_cnpj}), integrando {total_comps} pessoas jurídicas "
+        f"e {total_socios} pessoas físicas/jurídicas qualificadas no QSA. A identidade quantitativa de integrantes do corpo "
+        f"diretivo subsidia a inferência técnica de coordenação administrativa e comunhão de interesses operacionais, "
+        f"constituindo hipótese investigativa de atuação sob direção comum."
     )
 
-    # 2. Confusão Patrimonial & Promiscuidade Operacional
+    # 2. Correlação Espacial de Domicílios Fiscais
     if shared_clusters:
-        addrs_desc = "; ".join([f"'{lbl}' ({qtd} empresas)" for lbl, qtd in shared_clusters[:3]])
+        addrs_desc = "; ".join([f"Logradouro '{lbl}' com registro simultâneo de {qtd} CNPJs" for lbl, qtd in shared_clusters[:3]])
         arg_promiscuidade = (
-            f"Restou comprovada severa promiscuidade operacional decorrente do compartilhamento de domicílios "
-            f"fiscais entre entidades teórica e formalmente distintas: foram mapeados {len(shared_clusters)} "
-            f"estabelecimentos com multiplicidade de pessoas jurídicas cadastradas simultaneamente, destacando-se: {addrs_desc}. "
-            f"A concentração de sedes no mesmo endereço físico sem segregação de instalações operacionais "
-            f"constitui indício veemente de estabelecimentos de fachada e confusão patrimonial manifesta."
+            f"Registrou-se a coincidência de domicílio fiscal entre entidades formalmente autônomas: "
+            f"constam {len(shared_clusters)} estabelecimentos com multiplicidade cadastral de 2 ou mais pessoas jurídicas, "
+            f"destacando-se: {addrs_desc}. A sobreposição cadastral de múltiplos CNPJs no mesmo espaço geográfico, "
+            f"sem evidência registral de segregação de instalações físicas, subsidia a suposição técnica de confusão patrimonial "
+            f"e compartilhamento operacional, a ser constatada in loco."
         )
     else:
         arg_promiscuidade = (
-            f"As empresas mapeadas na rede apresentam ramificações operacionais distribuídas. "
-            f"Recomenda-se a verificação in loco da correspondência dos endereços fáticos perante os registros cadastrais."
+            f"As pessoas jurídicas mapeadas na malha societária possuem endereços cadastrais formalmente distintos. "
+            f"Sugere-se averiguação da correspondência empírica das sedes frente aos registros perante os órgãos fazendários."
         )
 
-    # 3. Engenharia de Blindagem Societária & Beneficiários Finais
+    # 3. Estruturação em Camadas & Beneficiários Finais (UBO)
     if pj_socios:
         pj_str = ", ".join(pj_socios[:3])
         arg_blindagem = (
-            f"Constatou-se a utilização de estruturas societárias em cascata (interposição de pessoas jurídicas como sócias: {pj_str}), "
-            f"mecanismo rotineiramente empregado como estratégia de blindagem patrimonial para criar camadas de anteparo "
-            f"entre o patrimônio ativo e as pessoas naturais controladoras. No entanto, o rastreamento dos Beneficiários "
-            f"Finais (UBO) demonstra que o centro de gravidade do poder decisório e econômico converge para: {ubos_str}."
+            f"Constatou-se a interposição de {len(pj_socios)} pessoa(s) jurídica(s) na composição do QSA ({pj_str}). "
+            f"A análise da cadeia de controle societário aponta a convergência da titularidade econômica final (UBO) para: {ubos_str}. "
+            f"A presença de camadas societárias intermediárias fundamenta a inferência técnica de fracionamento de titularidade, "
+            f"demandando apuração da linha direta de benefício econômico."
         )
     else:
         arg_blindagem = (
-            f"O quadro de sócios apresenta controle direto por pessoas físicas, convergindo o poder de gestão e "
-            f"benefício econômico final prioritariamente para: {ubos_str}."
+            f"O quadro de sócios apresenta controle direto por pessoas físicas, convergindo a administração formal e o "
+            f"benefício econômico prioritariamente para: {ubos_str}."
         )
 
-    # 4. Assimetria Cadastral & Risco de Sucessão Fraudulenta
+    # 4. Correlação Temporal e Cadastral
     if irreg_comps:
         irreg_str = "; ".join(irreg_comps[:4])
         arg_irregularidade = (
-            f"Foram identificadas entidades com situação cadastral irregular no mesmo agrupamento sob a gestão "
-            f"dos mesmos administradores: {irreg_str}. A coexistência de empresas inaptas ou baixadas "
-            f"ao lado de pessoas jurídicas plenamente operantes e ativas sob o mesmo comando configura "
-            f"clássico padrão de descarte societário de passivos ('empresa boa versus empresa podre') e "
-            f"indício contundente de sucessão empresarial fraudulenta de fato."
+            f"Mapeou-se a coexistência de {len(irreg_comps)} entidade(s) com situação cadastral inativa, suspensa ou baixada correlacionadas aos mesmos administradores: {irreg_str}. "
+            f"A concomitância temporal entre cadastros baixados/inaptos e empresas plenamente ativas sob a mesma gestão "
+            f"fundamenta a hipótese investigativa de descontinuidade seletiva de passivos e sucessão de fato para apuração probatória."
         )
     else:
         arg_irregularidade = (
-            f"Não foram detectadas baixas cadastrais compulsórias ou inaptidões no núcleo imediato; "
-            f"contudo, o volume de relacionamentos e transações exige vigilância quanto à higidez fiscal."
+            f"Não foram identificadas baixas compulsórias ou declarações de inaptidão no núcleo sob análise. "
+            f"Mantém-se a regularidade cadastral formal aparente perante a administração tributária."
         )
 
-    # 5. Enquadramento Jurídico (Subsunção Legal)
+    # 5. Hipótese de Subsunção Normativa (Enquadramento Técnico)
     arg_juridico = (
-        f"Diante do arcabouço fático apurado (Score de Risco: {risk_score} pts | Classificação: {risk_level}), "
-        f"restam materializados os requisitos autorizadores da Desconsideração da Personalidade Jurídica "
-        f"(Art. 50 do Código Civil, com redação da Lei 13.874/2019), especificamente a CONFUSÃO PATRIMONIAL "
-        f"(§ 2º, incisos I e III) decorrente do entrelaçamento societário e operacional sem independência fática. "
-        f"Subsidiariamente, incidem o Art. 28, § 2º do Código de Defesa do Consumidor (responsabilidade solidária "
-        f"de grupos societários de fato) e o Art. 2º, § 2º da CLT (integração e coordenação entre pessoas jurídicas), "
-        f"autorizando o redirecionamento de execuções e a constrição patrimonial de todo o conglomerado econômico."
+        f"A correlação dos indicadores quantitativos apurados (Score de Risco: {risk_score} pts | Classificação: {risk_level} | "
+        f"{total_comps} sociedades correlacionadas | {total_socios} integrantes no QSA) fornece substrato empírico "
+        f"para a formulação da hipótese de incidência do Art. 50 do Código Civil (com redação dada pela Lei 13.874/2019), "
+        f"especificamente sob a modalidade de confusão patrimonial (§ 2º, incisos I e III), amparada na convergência de domicílios e gestão. "
+        f"Subsidia-se, outrossim, o enquadramento hipotético de grupo de fato com esteio no Art. 28, § 2º do CDC, "
+        f"Art. 14 da Lei 12.846/2013 e instauração do Incidente de Desconsideração da Personalidade Jurídica (CPC, arts. 133 a 137)."
     )
 
-    # 6. Diligências Táticas Recomendadas
+    # 6. Diligências Pragmáticas Sugeridas
     diligencias = [
-        "1. SISBAJUD (Teimosinha): Ordem de indisponibilidade de ativos financeiros de forma simultânea em face da empresa central, coligadas e administradores ocultos.",
-        "2. RENAJUD & Embarcações/Aeronaves: Consulta integrada para penhora de veículos e ativos móveis de alto valor registrados em nome de qualquer entidade do grupo.",
-        "3. CNIB / Cartórios de Imóveis: Expedição de ordem de indisponibilidade perante a Central de Imóveis dos municípios sede e litorâneos vinculados aos sócios.",
-        "4. SIMBA / COAF: Requisição de Relatórios de Inteligência Financeira para apuração de movimentações atípicas e fluxo financeiro circular entre as contas das empresas.",
-        "5. Mandado de Constatação In Loco: Diligência por Oficial de Justiça nos endereços com multiplicidade cadastral para certificar a existência real de instalações e funcionários."
+        "1. Constatação Física In Loco: Expedição de mandado de constatação nos endereços de multiplicidade cadastral para quantificar instalações físicas, maquinário e quadro de funcionários.",
+        "2. Requisição de Vínculos Financeiros (SISBAJUD): Pesquisa quantitativa de relacionamento de contas correntes e aplicações em nome das pessoas jurídicas e dos gestores mapeados.",
+        "3. Rastreamento Patrimonial de Bens Móveis e Imóveis (RENAJUD / CNIB): Consulta de ativos registrados em nome de cada entidade componente do agrupamento sob investigação.",
+        "4. Fluxo de Movimentação Financeira (SIMBA/COAF): Apuração técnica de eventual trânsito circular de recursos financeiros entre as pessoas jurídicas correlacionadas.",
+        "5. Intimação Contábil-Fiscal: Solicitação dos livros contábeis (ECD/ECF) para verificação documental de mútuos intercompany e segregação patrimonial."
     ]
 
     # Texto Integral Consolidado
     paragrafos = [
-        f"=== PARECER TÉCNICO & SÍNTESE ARGUMENTATIVA INVESTIGATIVA ===",
-        f"Alvo Central: {root_name} | CNPJ: {root_cnpj} | Situação: {root_sit}",
+        f"=== LAUDO TÉCNICO-INVESTIGATIVO & SÍNTESE RELACIONAL ===",
+        f"Alvo Central: {root_name} | CNPJ: {root_cnpj} | Situação Cadastral: {root_sit}",
         f"Data da Síntese: {datetime.now().strftime('%d/%m/%Y às %H:%M')}",
         "",
-        f"1. DA CARACTERIZAÇÃO DO GRUPO ECONÔMICO DE FATO E UNIDADE DE DIREÇÃO:",
+        f"1. DA CORRELAÇÃO DE SOCIEDADES E HIPÓTESE DE GRUPO ECONÔMICO:",
         tese_grupo,
         "",
-        f"2. DA PROMISCUIDADE OPERACIONAL E CONFUSÃO PATRIMONIAL:",
+        f"2. DA SOBREPOSIÇÃO DE DOMICÍLIOS FISCAIS E CONFUSÃO PATRIMONIAL HIPOTÉTICA:",
         arg_promiscuidade,
         "",
-        f"3. DA ENGENHARIA SOCIETÁRIA DE BLINDAGEM E BENEFICIÁRIOS FINAIS (UBO):",
+        f"3. DA ESTRUTURAÇÃO EM CAMADAS E BENEFICIÁRIOS FINAIS (UBO):",
         arg_blindagem,
         "",
-        f"4. DA ASSIMETRIA CADASTRAL E INDÍCIOS DE SUCESSÃO FRAUDULENTA:",
+        f"4. DA ASSIMETRIA TEMPORAL E CORRELAÇÕES CADASTRAIS:",
         arg_irregularidade,
         "",
-        f"5. DO ENQUADRAMENTO JURÍDICO (ART. 50 DO CÓDIGO CIVIL E ART. 28 DO CDC):",
+        f"5. DO ENQUADRAMENTO TÉCNICO-NORMATIVO HIPOTÉTICO (ART. 50 CC E CORRELATOS):",
         arg_juridico,
         "",
-        f"6. PLANO DE DILIGÊNCIAS TÁTICAS RECOMENDADAS:",
+        f"6. PLANO DE DILIGÊNCIAS PRAGMÁTICAS RECOMENDADAS:",
         "\n".join(diligencias)
     ]
 
@@ -311,12 +308,12 @@ def generate_excel_dossier(
         cell.fill = PatternFill(start_color="1A237E", end_color="1A237E", fill_type="solid")
         cell.font = header_font
 
-    ws_arg.append(["1. Grupo Econômico de Fato & Unidade de Direção", arg_res.get("tese_grupo", ""), "Art. 2º, § 2º da CLT / Teoria da Unidade Econômica"])
-    ws_arg.append(["2. Confusão Patrimonial & Promiscuidade", arg_res.get("arg_promiscuidade", ""), "Art. 50, § 2º, I e III do Código Civil"])
-    ws_arg.append(["3. Blindagem Societária & UBO", arg_res.get("arg_blindagem", ""), "Art. 50 do CC / Rastreamento de Beneficiário Final (IN RFB 2.119/2022)"])
-    ws_arg.append(["4. Assimetria Cadastral & Sucessão", arg_res.get("arg_irregularidade", ""), "Fraude contra credores / Sucessão empresarial fraudulenta de fato"])
-    ws_arg.append(["5. Fundamentação Jurídica Estruturada", arg_res.get("arg_juridico", ""), "Art. 50 do CC / Art. 28 do CDC / Súmula 129 TST"])
-    ws_arg.append(["6. Diligências Táticas Sugeridas", "\n".join(arg_res.get("diligencias", [])), "SISBAJUD, RENAJUD, CNIB, SIMBA e Constatação In Loco"])
+    ws_arg.append(["1. Coordenação e Grupo Econômico Hipotético", arg_res.get("tese_grupo", ""), "Art. 2º, § 2º da CLT / Art. 265 da Lei 6.404/76"])
+    ws_arg.append(["2. Coincidência Espacial de Domicílios Fiscais", arg_res.get("arg_promiscuidade", ""), "Art. 50, § 2º, I e III do Código Civil / Confusão Patrimonial"])
+    ws_arg.append(["3. Estruturação em Camadas e UBO", arg_res.get("arg_blindagem", ""), "Art. 50 do CC / Rastreamento de Beneficiário Final (IN RFB 2.119/2022)"])
+    ws_arg.append(["4. Correlação Temporal e Assimetria Cadastral", arg_res.get("arg_irregularidade", ""), "Hipótese de sucessão empresarial de fato / Art. 1.146 do CC"])
+    ws_arg.append(["5. Subsunção Normativa Hipotética", arg_res.get("arg_juridico", ""), "Art. 50 do CC / Art. 28 do CDC / CPC arts. 133 a 137"])
+    ws_arg.append(["6. Diligências Pragmáticas Recomendadas", "\n".join(arg_res.get("diligencias", [])), "Constatação In Loco, SISBAJUD, RENAJUD, CNIB e SIMBA"])
 
     if notes and notes.strip():
         ws_arg.append(["7. Anotações Adicionais do Investigador", notes.strip(), "Parecer individualizado do analista"])
@@ -466,23 +463,23 @@ def generate_pdf_dossier(
         notes=notes
     )
 
-    story.append(Paragraph("Parecer Técnico & Lógica Argumentativa Investigativa", sec_style))
+    story.append(Paragraph("Síntese Técnico-Pericial & Inferências Investigativas", sec_style))
     p_arg_intro = Paragraph(
-        "A presente síntese técnico-investigativa consolida os vínculos societários, domiciliares e cadastrais "
-        "apurados na rede, estabelecendo a fundamentação de fato e de direito para instrução probatória, "
-        "desconsideração da personalidade jurídica (Art. 50 do Código Civil) e tutela de recuperação de créditos.",
+        "A presente síntese técnico-investigativa consolida correlações cadastrais, societárias e espaciais "
+        "apuradas na rede de relacionamentos, estruturando hipóteses fáticas para instrução probatória "
+        "e eventual subsunção às hipóteses normativas do Art. 50 do Código Civil e medidas de constrição patrimonial.",
         body_style
     )
     story.append(p_arg_intro)
     story.append(Spacer(1, 6))
 
     arg_rows = [
-        [Paragraph("<b>1. Grupo Econômico de Fato:</b>", body_style), Paragraph(arg_res.get("tese_grupo", ""), body_style)],
-        [Paragraph("<b>2. Confusão Patrimonial & Domicílios:</b>", body_style), Paragraph(arg_res.get("arg_promiscuidade", ""), body_style)],
-        [Paragraph("<b>3. Blindagem Societária & UBO:</b>", body_style), Paragraph(arg_res.get("arg_blindagem", ""), body_style)],
-        [Paragraph("<b>4. Assimetria Cadastral & Risco:</b>", body_style), Paragraph(arg_res.get("arg_irregularidade", ""), body_style)],
-        [Paragraph("<b>5. Fundamentação Jurídica:</b>", body_style), Paragraph(arg_res.get("arg_juridico", ""), body_style)],
-        [Paragraph("<b>6. Diligências Sugeridas:</b>", body_style), Paragraph("<br/>".join(arg_res.get("diligencias", [])), body_style)],
+        [Paragraph("<b>1. Coordenação & Grupo Econômico:</b>", body_style), Paragraph(arg_res.get("tese_grupo", ""), body_style)],
+        [Paragraph("<b>2. Coincidência Espacial de Domicílios:</b>", body_style), Paragraph(arg_res.get("arg_promiscuidade", ""), body_style)],
+        [Paragraph("<b>3. Estruturação em Camadas & UBO:</b>", body_style), Paragraph(arg_res.get("arg_blindagem", ""), body_style)],
+        [Paragraph("<b>4. Correlação Temporal & Cadastral:</b>", body_style), Paragraph(arg_res.get("arg_irregularidade", ""), body_style)],
+        [Paragraph("<b>5. Subsunção Normativa Hipotética:</b>", body_style), Paragraph(arg_res.get("arg_juridico", ""), body_style)],
+        [Paragraph("<b>6. Diligências Pragmáticas Sugeridas:</b>", body_style), Paragraph("<br/>".join(arg_res.get("diligencias", [])), body_style)],
     ]
 
     t_arg = Table(arg_rows, colWidths=[140, 400])
