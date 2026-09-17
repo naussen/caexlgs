@@ -32,6 +32,13 @@ dist/
 scratch/
 scratch_*.py
 
+# Banco de dados e mídias locais OSINT
+*.db
+*.sqlite
+*.sqlite3
+cnpjpw/local_app/data/
+data/
+
 # Sistema Operacional
 .DS_Store
 Thumbs.db

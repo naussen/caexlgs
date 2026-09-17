@@ -21,6 +21,7 @@ import graph_dispatcher
 import data_service
 import graph_expansions
 import sanitizers
+import osint
 
 st.set_page_config(page_title="POMELO — Inteligência Societária", page_icon="🍊", layout="wide")
 
@@ -247,12 +248,13 @@ else:
     )
 
 # Navegação Principal
-menu_options = ["🔍 Busca Simples", "⚡ Busca Avançada", "📊 Resultados", "🏢 Dossiê / Grafo"]
+menu_options = ["🔍 Busca Simples", "⚡ Busca Avançada", "📊 Resultados", "🏢 Dossiê / Grafo", "🌐 Fontes Abertas / OSINT"]
 view_map = {
     "🔍 Busca Simples": "HOME",
     "⚡ Busca Avançada": "ADVANCED",
     "📊 Resultados": "RESULTS",
-    "🏢 Dossiê / Grafo": "DETAILS"
+    "🏢 Dossiê / Grafo": "DETAILS",
+    "🌐 Fontes Abertas / OSINT": "OSINT"
 }
 reverse_map = {v: k for k, v in view_map.items()}
 
@@ -1240,3 +1242,7 @@ elif st.session_state.view == 'DETAILS':
                                     st.rerun()
                         else:
                             st.info("É necessário pelo menos 2 nós disponíveis para conectar.")
+
+elif st.session_state.view == 'OSINT':
+    render_back_button()
+    osint.render_osint_screen()
