@@ -36,6 +36,32 @@ if not st.session_state.authenticated:
     auth.render_login_screen()
     st.stop()
 
+if 'recent_queries' not in st.session_state:
+    st.session_state.recent_queries = []
+
+def adicionar_consulta_recente(tipo: str, valor: str, rotulo: str = ""):
+    """Registra uma consulta recente na barra lateral, sem duplicidades e com limite."""
+    if not valor or not str(valor).strip():
+        return
+    valor = str(valor).strip()
+    if not rotulo:
+        rotulo = f"{tipo}: {valor}"
+    else:
+        rotulo = str(rotulo).strip()
+    
+    # Remove se já existia para mover ao topo
+    st.session_state.recent_queries = [
+        q for q in st.session_state.recent_queries 
+        if not (q.get('tipo') == tipo and q.get('valor') == valor)
+    ]
+    st.session_state.recent_queries.insert(0, {
+        'tipo': tipo,
+        'valor': valor,
+        'rotulo': rotulo
+    })
+    if len(st.session_state.recent_queries) > 10:
+        st.session_state.recent_queries = st.session_state.recent_queries[:10]
+
 # Detecta ?cnpj=... ou ?socio=... na URL para abertura direta (útil para links em nova aba)
 query_cnpj = st.query_params.get("cnpj")
 if query_cnpj:
@@ -50,6 +76,7 @@ if query_socio and query_socio != st.session_state.get('last_loaded_socio_query'
     st.session_state.last_loaded_socio_query = query_socio
     st.session_state.view = 'RESULTS'
     st.session_state.search_title = f"Empresas do Sócio: {query_socio}"
+    adicionar_consulta_recente('SOCIO', query_socio, f"Sócio: {query_socio}")
     with st.spinner(f"Buscando empresas de {query_socio}..."):
         resp_qs = data_service.buscar_empresas_do_socio(query_socio)
         st.session_state.search_results = resp_qs.results
@@ -297,24 +324,70 @@ if st.session_state.get('current_cnpj'):
             st.rerun()
 
 # Histórico de Consultas Recentes
-if st.session_state.get('history'):
+if st.session_state.get('recent_queries'):
     st.sidebar.markdown("---")
     st.sidebar.markdown("##### 🕒 Consultas Recentes")
-    for idx_h, hist_item in enumerate(reversed(st.session_state.history[-5:])):
+    for idx_h, hist_item in enumerate(st.session_state.recent_queries[:7]):
         t_hist = hist_item.get('tipo', 'CNPJ')
         v_hist = hist_item.get('valor', '')
-        lbl_btn = f"{t_hist}: {v_hist}"
-        if len(lbl_btn) > 24:
-            lbl_btn = lbl_btn[:22] + "..."
-        if st.sidebar.button(f"🔍 {lbl_btn}", key=f"hist_btn_{idx_h}_{v_hist}", use_container_width=True):
+        lbl_btn = hist_item.get('rotulo') or f"{t_hist}: {v_hist}"
+        
+        ico = {
+            'CNPJ': '🏢',
+            'RAZAO': '🏛️',
+            'SOCIO': '👤',
+            'TEL': '📞',
+            'EMAIL': '✉️'
+        }.get(t_hist, '🔍')
+        
+        lbl_display = f"{ico} {lbl_btn}"
+        if len(lbl_display) > 28:
+            lbl_display = lbl_display[:26] + "..."
+            
+        if st.sidebar.button(lbl_display, key=f"rec_q_{idx_h}_{t_hist}_{v_hist[:10]}", use_container_width=True):
             if t_hist == 'CNPJ':
                 navigate_to('DETAILS', cnpj=v_hist)
-            else:
-                navigate_to('RESULTS', title=f"Histórico: {v_hist}", results=[])
+            elif t_hist == 'RAZAO':
+                with st.spinner(f"Consultando Razão Social '{v_hist}'..."):
+                    resp_rec = data_service.buscar_razao_social(v_hist)
+                    st.session_state.last_search_source = resp_rec.source
+                    st.session_state.last_search_fallback = resp_rec.fallback_used
+                    st.session_state.last_search_error = resp_rec.error
+                navigate_to('RESULTS', title=f"Resultados para Razão Social: {v_hist}", results=resp_rec.results)
+            elif t_hist == 'SOCIO':
+                doc_adequado = sanitizers.adequar_documento(v_hist)
+                with st.spinner(f"Consultando sócio '{v_hist}'..."):
+                    if doc_adequado:
+                        resp_rec = data_service.buscar_socio(doc_adequado)
+                        title_rec = f"Resultados para Sócio Doc: {doc_adequado}"
+                    else:
+                        resp_rec = data_service.buscar_empresas_do_socio(v_hist)
+                        title_rec = f"Empresas do Sócio: {v_hist}"
+                    st.session_state.last_search_source = resp_rec.source
+                    st.session_state.last_search_fallback = resp_rec.fallback_used
+                    st.session_state.last_search_error = resp_rec.error
+                navigate_to('RESULTS', title=title_rec, results=resp_rec.results)
+            elif t_hist == 'TEL':
+                tel_info = sanitizers.adequar_telefone(v_hist)
+                d = tel_info.get("ddd") or v_hist[:2]
+                n = tel_info.get("numero") or v_hist[2:]
+                with st.spinner(f"Buscando por telefone ({d}) {n}..."):
+                    res_t, err_t, orig_t, src_t, fb_t = executar_busca_telefone(d, n)
+                    st.session_state.last_search_source = src_t
+                    st.session_state.last_search_fallback = fb_t
+                    st.session_state.last_search_error = err_t
+                navigate_to('RESULTS', title=f"Resultados para Telefone: ({d}) {n}", results=res_t)
+            elif t_hist == 'EMAIL':
+                with st.spinner(f"Buscando por e-mail '{v_hist}'..."):
+                    res_e, err_e, orig_e, src_e, fb_e = executar_busca_email(v_hist)
+                    st.session_state.last_search_source = src_e
+                    st.session_state.last_search_fallback = fb_e
+                    st.session_state.last_search_error = err_e
+                navigate_to('RESULTS', title=f"Resultados para E-mail: {v_hist}", results=res_e)
             st.rerun()
 
-    if st.sidebar.button("🧹 Limpar Histórico", key="sb_clear_history", use_container_width=True):
-        st.session_state.history = []
+    if st.sidebar.button("🧹 Limpar Consultas", key="sb_clear_recent_queries", use_container_width=True):
+        st.session_state.recent_queries = []
         st.rerun()
 
 # Encerramento de Sessão
@@ -348,6 +421,7 @@ if st.session_state.view == 'HOME':
         if st.button("Buscar CNPJ", key="btn_busca_cnpj"):
             if cnpj_input:
                 cnpj_adequado = sanitizers.adequar_documento(cnpj_input)
+                adicionar_consulta_recente('CNPJ', cnpj_adequado, f"CNPJ: {cnpj_adequado}")
                 navigate_to('DETAILS', cnpj=cnpj_adequado)
                 st.rerun()
 
@@ -356,6 +430,7 @@ if st.session_state.view == 'HOME':
         razao_input = st.text_input("Digite a Razão Social:")
         if st.button("Buscar Razão Social", key="btn_busca_razao"):
             if razao_input:
+                adicionar_consulta_recente('RAZAO', razao_input, f"Razão: {razao_input}")
                 with st.spinner("Consultando Razão Social..."):
                     resp = data_service.buscar_razao_social(razao_input)
                     resultados = resp.results
@@ -374,6 +449,9 @@ if st.session_state.view == 'HOME':
         socio_nome = st.text_input("Nome do Sócio (opcional):")
         if st.button("Buscar Sócio", key="btn_busca_socio"):
             doc_adequado = sanitizers.adequar_documento(socio_doc)
+            val_s = socio_nome or doc_adequado
+            if val_s:
+                adicionar_consulta_recente('SOCIO', val_s, f"Sócio: {val_s}")
             with st.spinner("Consultando empresas do sócio..."):
                 if doc_adequado and not socio_nome:
                     resp = data_service.buscar_socio(doc_adequado)
@@ -403,6 +481,7 @@ if st.session_state.view == 'HOME':
                     tel = tel_info["numero"]
                     if tel_info.get("ajuste_realizado"):
                         st.toast(f"ℹ️ {tel_info['ajuste_realizado']}")
+                    adicionar_consulta_recente('TEL', f"{ddd}{tel}", f"Tel: ({ddd}) {tel}")
                     with st.spinner(f"Buscando empresas por telefone ({ddd}) {tel}..."):
                         resultados, erro, origem, src, fb = executar_busca_telefone(ddd, tel)
                         st.session_state.last_search_source = src
@@ -416,6 +495,7 @@ if st.session_state.view == 'HOME':
             email_input = st.text_input("Digite o Email")
             if st.button("Buscar Email", key="btn_busca_email"):
                 if email_input:
+                    adicionar_consulta_recente('EMAIL', email_input, f"Email: {email_input}")
                     with st.spinner("Buscando empresas por e-mail..."):
                         resultados, erro, origem, src, fb = executar_busca_email(email_input)
                         st.session_state.last_search_source = src
@@ -513,6 +593,7 @@ elif st.session_state.view == 'RESULTS':
                     st.caption(f"📞 {res.get('telefone')}")
             with col2:
                 if st.button("Ver Detalhes", key=f"det_{cnpj_str}_{i}"):
+                    adicionar_consulta_recente('CNPJ', cnpj_str, f"{nome[:20]} ({cnpj_str})")
                     navigate_to('DETAILS', cnpj=cnpj_str)
                     st.rerun()
             with col3:
@@ -540,6 +621,8 @@ elif st.session_state.view == 'DETAILS':
         else:
             st.session_state.current_cnpj = cnpj
             st.session_state.current_company_data = dados
+            razao_det = dados.get('nome_empresarial') or dados.get('razao_social') or cnpj
+            adicionar_consulta_recente('CNPJ', cnpj, f"{razao_det[:20]} ({cnpj})")
             col_title, col_newtab = st.columns([5, 1])
             with col_title:
                 st.header(dados.get('nome_empresarial', ''))
