@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 
 _app_dir = os.path.dirname(os.path.abspath(__file__))
 if _app_dir not in sys.path:
