@@ -1382,12 +1382,23 @@ def build_graph_html(
           }}, 600);
         }});
 
-        // Movimentação livre: fixa permanentemente a coordenada onde o usuário soltar o nó
+        // Movimentação livre: permite arrastar entidades e soltá-las sem retornar à posição original, podendo movê-las novamente quantas vezes desejar
+        network.on('dragStart', function(params) {{
+          var nodeIds = (params.nodes && params.nodes.length > 0) ? params.nodes : network.getSelectedNodes();
+          if (nodeIds && nodeIds.length > 0) {{
+            var updates = [];
+            nodeIds.forEach(function(id) {{
+              updates.push({{ id: id, fixed: {{ x: false, y: false }} }});
+            }});
+            nodes.update(updates);
+          }}
+        }});
+
         network.on('dragEnd', function(params) {{
           if (params.nodes && params.nodes.length > 0) {{
             params.nodes.forEach(function(nodeId) {{
               var pos = network.getPosition(nodeId);
-              nodes.update({{ id: nodeId, x: pos.x, y: pos.y, fixed: {{ x: true, y: true }}, physics: false }});
+              nodes.update({{ id: nodeId, x: pos.x, y: pos.y, fixed: {{ x: false, y: false }}, physics: false }});
             }});
           }}
         }});

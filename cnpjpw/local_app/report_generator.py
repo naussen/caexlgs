@@ -3,12 +3,14 @@ Módulo para Geração de Dossiês Consolidados em PDF (reportlab) e Excel (open
 Compila métricas de risco, quadro societário, empresas vinculadas, endereços compartilhados e anotações.
 """
 import io
+import re
+import html
 from datetime import datetime
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 
@@ -428,30 +430,6 @@ def generate_pdf_dossier(
     story.append(t_info)
     story.append(Spacer(1, 10))
 
-    # Box de Risco
-    story.append(Paragraph("Avaliação de Risco & Conformidade", sec_style))
-    risk_level = risk_info.get('risk_level', 'BAIXO')
-    risk_color = colors.HexColor("#2E7D32") if risk_level == "BAIXO" else (colors.HexColor("#F57C00") if risk_level == "MÉDIO" else colors.HexColor("#C62828"))
-
-    risk_table_data = [
-        [Paragraph("<b>Nível de Risco do Grupo:</b>", body_style), Paragraph(f"<b>{risk_level}</b> ({risk_info.get('risk_score', 0)} pts)", ParagraphStyle('R', parent=body_style, textColor=risk_color))],
-        [Paragraph("<b>Empresas Irregulares no Grupo:</b>", body_style), Paragraph("Identificadas" if risk_info.get('is_irregular') else "Nenhuma detectada", body_style)]
-    ]
-    flags = risk_info.get('risk_flags', [])
-    if flags:
-        for f in flags:
-            risk_table_data.append([Paragraph("<b>Alerta:</b>", alert_style), Paragraph(f"⚠️ {f}", alert_style)])
-
-    t_risk = Table(risk_table_data, colWidths=[170, 370])
-    t_risk.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#FFF8E1") if risk_level != "ALTO" else colors.HexColor("#FFEBEE")),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#FFE082") if risk_level != "ALTO" else colors.HexColor("#FFCDD2")),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    story.append(t_risk)
-    story.append(Spacer(1, 10))
-
     # Seção de Lógica Argumentativa e Parecer Técnico
     arg_res = build_argumentative_dossier(
         root_data=root_data,
@@ -570,4 +548,591 @@ def generate_pdf_dossier(
         story.append(Spacer(1, 10))
 
     doc.build(story)
+    return output.getvalue()
+
+
+def generate_compiled_cards_pdf(
+    nodes_list: list[dict],
+    edges_list: list[dict] = None,
+    all_companies: list[dict] = None,
+    root_data: dict = None,
+    ubos: list = None
+) -> bytes:
+    """
+    Compila os cartões de CNPJ (Pessoas Jurídicas) e Fichas Cadastrais (Pessoas Físicas)
+    de todas as entidades presentes no Grafo em um único arquivo PDF.
+    
+    Cada entidade possui sua própria página/seção dedicada com formatação profissional,
+    dados cadastrais completos, quadro societário (QSA) e vínculos identificados na rede.
+    """
+    import html as html_lib
+
+    output = io.BytesIO()
+    pdf_doc = SimpleDocTemplate(
+        output,
+        pagesize=letter,
+        rightMargin=28,
+        leftMargin=28,
+        topMargin=28,
+        bottomMargin=28
+    )
+
+    styles = getSampleStyleSheet()
+
+    # Estilos padronizados
+    title_main_style = ParagraphStyle(
+        'CardMainTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        leading=20,
+        textColor=colors.HexColor("#0D47A1"),
+        alignment=1,  # Centered
+        spaceAfter=4
+    )
+    title_sub_style = ParagraphStyle(
+        'CardSubTitle',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=13,
+        textColor=colors.HexColor("#546E7A"),
+        alignment=1,
+        spaceAfter=12
+    )
+    section_hdr_style = ParagraphStyle(
+        'CardSecHeader',
+        parent=styles['Heading2'],
+        fontSize=11,
+        leading=14,
+        textColor=colors.HexColor("#1565C0"),
+        spaceBefore=8,
+        spaceAfter=4
+    )
+    card_title_style = ParagraphStyle(
+        'CardOfficialTitle',
+        parent=styles['Normal'],
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#1A237E"),
+        alignment=1,
+        bold=True
+    )
+    card_sub_official = ParagraphStyle(
+        'CardSubOfficial',
+        parent=styles['Normal'],
+        fontSize=7.5,
+        leading=9.5,
+        textColor=colors.HexColor("#37474F"),
+        alignment=1
+    )
+    flabel_style = ParagraphStyle(
+        'FieldLabel',
+        parent=styles['Normal'],
+        fontSize=6.5,
+        leading=8,
+        textColor=colors.HexColor("#546E7A"),
+        bold=True
+    )
+    fval_style = ParagraphStyle(
+        'FieldValue',
+        parent=styles['Normal'],
+        fontSize=8.5,
+        leading=11,
+        textColor=colors.HexColor("#111111"),
+        bold=True
+    )
+    fval_norm_style = ParagraphStyle(
+        'FieldValueNorm',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#263238")
+    )
+    table_hdr_cell = ParagraphStyle(
+        'TableHdrCell',
+        parent=styles['Normal'],
+        fontSize=7.5,
+        leading=9.5,
+        textColor=colors.white,
+        bold=True
+    )
+    table_row_cell = ParagraphStyle(
+        'TableRowCell',
+        parent=styles['Normal'],
+        fontSize=7.5,
+        leading=9.5,
+        textColor=colors.HexColor("#212121")
+    )
+
+    story = []
+
+    # Mapas auxiliares para enriquecimento
+    ubo_names = {str(u.get('nome', '')).strip().lower() for u in (ubos or []) if isinstance(u, dict) and u.get('nome')}
+    
+    company_lookup = {}
+    if all_companies:
+        for c in all_companies:
+            if not isinstance(c, dict):
+                continue
+            raw_c = str(c.get('cnpj') or c.get('cnpj_basico') or '')
+            digs = re.sub(r'\D', '', raw_c)
+            if digs:
+                company_lookup[digs] = c
+                if len(digs) >= 8:
+                    company_lookup[digs[:8]] = c
+    if root_data and isinstance(root_data, dict):
+        raw_r = str(root_data.get('cnpj') or root_data.get('cnpj_basico') or '')
+        digs_r = re.sub(r'\D', '', raw_r)
+        if digs_r:
+            company_lookup[digs_r] = root_data
+            if len(digs_r) >= 8:
+                company_lookup[digs_r[:8]] = root_data
+
+    # Mapeamento de arestas para encontrar empresas vinculadas a sócios
+    socio_to_companies = {}
+    edges_list = edges_list or []
+    node_id_to_comp = {}
+
+    for n in nodes_list:
+        nt = str(n.get('_type') or n.get('type') or '').upper()
+        if 'EMPRESA' in nt:
+            c_det = n.get('_details') or {}
+            c_label = n.get('_raw_label') or n.get('label') or n.get('id')
+            c_cnpj = c_det.get('cnpj') or n.get('_raw_val') or ''
+            node_id_to_comp[n.get('id')] = {
+                'id': n.get('id'),
+                'razao_social': c_det.get('razao_social') or c_label,
+                'cnpj': c_cnpj,
+                'situacao': c_det.get('situacao_cadastral') or 'ATIVA'
+            }
+
+    for e in edges_list:
+        src = e.get('from')
+        dst = e.get('to')
+        lbl = str(e.get('label') or 'Sócio').strip()
+
+        # Verifica se src é empresa e dst é sócio
+        if src in node_id_to_comp and dst not in node_id_to_comp:
+            socio_to_companies.setdefault(dst, []).append({
+                'empresa': node_id_to_comp[src]['razao_social'],
+                'cnpj': node_id_to_comp[src]['cnpj'],
+                'situacao': node_id_to_comp[src]['situacao'],
+                'vinculo': lbl
+            })
+        elif dst in node_id_to_comp and src not in node_id_to_comp:
+            socio_to_companies.setdefault(src, []).append({
+                'empresa': node_id_to_comp[dst]['razao_social'],
+                'cnpj': node_id_to_comp[dst]['cnpj'],
+                'situacao': node_id_to_comp[dst]['situacao'],
+                'vinculo': lbl
+            })
+
+    # Separação e Classificação das Entidades do Grafo
+    pj_nodes = []
+    pf_nodes = []
+    seen_ids = set()
+
+    # 1. PJs
+    for n in nodes_list:
+        nid = n.get('id')
+        if nid in seen_ids:
+            continue
+        nt = str(n.get('_type') or n.get('type') or '').upper()
+        if 'EMPRESA' in nt or (n.get('_is_accountant') and 'EMPRESA' in str(n.get('_details', {}).get('tipo_entidade', '')).upper()):
+            seen_ids.add(nid)
+            is_root = (nt == 'EMPRESA_ROOT' or n.get('_is_root') or nid == 'empresa_root')
+            pj_nodes.append((0 if is_root else 1, n))
+
+    pj_nodes.sort(key=lambda x: (x[0], str(x[1].get('_details', {}).get('razao_social') or x[1].get('label') or '')))
+    pj_nodes = [item[1] for item in pj_nodes]
+
+    # 2. PFs
+    for n in nodes_list:
+        nid = n.get('id')
+        if nid in seen_ids:
+            continue
+        nt = str(n.get('_type') or n.get('type') or '').upper()
+        if nt in ('SOCIO', 'UBO') or ('SOCIO' in nt) or ('UBO' in nt):
+            seen_ids.add(nid)
+            s_name = str(n.get('_raw_val') or n.get('label') or '').strip().lower()
+            is_ubo = (nt == 'UBO' or s_name in ubo_names)
+            pf_nodes.append((0 if is_ubo else 1, n))
+
+    pf_nodes.sort(key=lambda x: (x[0], str(x[1].get('_details', {}).get('nome') or x[1].get('label') or '')))
+    pf_nodes = [item[1] for item in pf_nodes]
+
+    total_pjs = len(pj_nodes)
+    total_pfs = len(pf_nodes)
+    total_entidades = total_pjs + total_pfs
+
+    # Helper de formatação de CNPJ
+    def fmt_cnpj(digits_or_str: str) -> str:
+        d = re.sub(r'\D', '', str(digits_or_str or ''))
+        if len(d) == 14:
+            return f"{d[:2]}.{d[2:5]}.{d[5:8]}/{d[8:12]}-{d[12:14]}"
+        return digits_or_str or '-'
+
+    # Helper de formatação de CPF
+    def fmt_doc(doc_str: str) -> str:
+        d = str(doc_str or '').strip()
+        if not d:
+            return "Não informado"
+        digs = re.sub(r'\D', '', d)
+        if len(digs) == 11 and d.isdigit():
+            return f"***.{digs[3:6]}.{digs[6:9]}-**"
+        return d
+
+    # =========================================================================
+    # PÁGINA 1: CAPA & ÍNDICE CONSOLIDADO DAS ENTIDADES DO GRAFO
+    # =========================================================================
+    story.append(Paragraph("CARTÕES CADASTRAIS CONSOLIDADOS DA REDE", title_main_style))
+    story.append(Paragraph("Compilação de Comprovantes Cadastrais (Pessoas Jurídicas e Físicas) do Grafo", title_sub_style))
+
+    root_label = ""
+    root_cnpj_val = ""
+    if root_data:
+        root_label = root_data.get('nome_empresarial') or root_data.get('razao_social') or ''
+        root_cnpj_val = fmt_cnpj(root_data.get('cnpj') or root_data.get('cnpj_basico') or '')
+
+    dt_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
+    
+    meta_data = [
+        [Paragraph("<b>Empresa Central Investigada:</b>", flabel_style), Paragraph(f"<b>{root_label}</b> (CNPJ: {root_cnpj_val})", fval_norm_style)],
+        [Paragraph("<b>Data da Compilação:</b>", flabel_style), Paragraph(dt_str, fval_norm_style)],
+        [Paragraph("<b>Quantitativo de Entidades na Rede:</b>", flabel_style), Paragraph(f"<b>{total_entidades} entidades</b> ({total_pjs} Pessoas Jurídicas • {total_pfs} Pessoas Físicas / Sócios)", fval_norm_style)],
+        [Paragraph("<b>Finalidade do Documento:</b>", flabel_style), Paragraph("Instrução probatória, comprovação de vínculos societários e análise cadastral individualizada.", fval_norm_style)]
+    ]
+    t_meta = Table(meta_data, colWidths=[160, 396])
+    t_meta.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CFD8DC")),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    story.append(t_meta)
+    story.append(Spacer(1, 14))
+
+    # Tabela Índice de Entidades
+    story.append(Paragraph("Índice de Entidades Contidas neste Volume", section_hdr_style))
+    
+    idx_headers = [
+        Paragraph("<b>#</b>", table_hdr_cell),
+        Paragraph("<b>Tipo</b>", table_hdr_cell),
+        Paragraph("<b>Nome Empresarial / Nome Completo</b>", table_hdr_cell),
+        Paragraph("<b>Documento (CNPJ / CPF)</b>", table_hdr_cell),
+        Paragraph("<b>Condição / Situação</b>", table_hdr_cell)
+    ]
+    idx_data = [idx_headers]
+
+    seq = 1
+    for n in pj_nodes:
+        d = n.get('_details') or {}
+        razao = d.get('razao_social') or n.get('_raw_label') or n.get('label') or n.get('id')
+        cnpj_f = d.get('cnpj') or fmt_cnpj(n.get('_raw_val'))
+        sit = d.get('situacao_cadastral') or 'ATIVA'
+        is_root = 'EMPRESA_ROOT' in str(n.get('_type') or '').upper() or n.get('_is_root')
+        tipo_lbl = "🏢 PJ (Raiz)" if is_root else "🏢 PJ"
+        idx_data.append([
+            Paragraph(str(seq), table_row_cell),
+            Paragraph(tipo_lbl, table_row_cell),
+            Paragraph(f"<b>{razao[:45]}</b>", table_row_cell),
+            Paragraph(f"<font face='Courier'>{cnpj_f}</font>", table_row_cell),
+            Paragraph(sit, table_row_cell)
+        ])
+        seq += 1
+
+    for n in pf_nodes:
+        d = n.get('_details') or {}
+        nome = d.get('nome') or n.get('_raw_val') or n.get('label') or n.get('id')
+        doc_pf_val = fmt_doc(d.get('documento') or '')
+        nt = str(n.get('_type') or '').upper()
+        is_ubo = nt == 'UBO' or (str(nome).strip().lower() in ubo_names)
+        tipo_lbl = "👑 UBO" if is_ubo else "👤 Sócio"
+        qual = d.get('qualificacao') or 'Sócio'
+        idx_data.append([
+            Paragraph(str(seq), table_row_cell),
+            Paragraph(tipo_lbl, table_row_cell),
+            Paragraph(f"<b>{nome[:45]}</b>", table_row_cell),
+            Paragraph(f"<font face='Courier'>{doc_pf_val}</font>", table_row_cell),
+            Paragraph(qual[:25], table_row_cell)
+        ])
+        seq += 1
+
+    t_idx = Table(idx_data, colWidths=[24, 60, 246, 120, 106])
+    t_idx.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0D47A1")),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CFD8DC")),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")])
+    ]))
+    story.append(t_idx)
+
+    # =========================================================================
+    # CARTÕES DE PESSOAS JURÍDICAS (CARTÃO CNPJ OFICIAL)
+    # =========================================================================
+    for n in pj_nodes:
+        story.append(PageBreak())
+
+        d = n.get('_details') or {}
+        raw_cnpj = str(d.get('cnpj') or n.get('_raw_val') or n.get('id'))
+        digs = re.sub(r'\D', '', raw_cnpj)
+        
+        # Enriquecimento com company_lookup se disponível
+        enriched = company_lookup.get(digs) or (company_lookup.get(digs[:8]) if len(digs) >= 8 else {})
+        
+        razao = d.get('razao_social') or enriched.get('nome_empresarial') or enriched.get('razao_social') or n.get('label') or 'Razão Social Não Informada'
+        fantasia = d.get('nome_fantasia') or enriched.get('nome_fantasia') or '*****'
+        cnpj_fmt = d.get('cnpj') or fmt_cnpj(digs)
+        
+        matriz_filial = "MATRIZ"
+        if enriched.get('identificador_matriz_filial') == 2 or (len(digs) == 14 and not digs.endswith('0001')):
+            matriz_filial = "FILIAL"
+
+        data_abertura = d.get('data_abertura') or enriched.get('data_inicio_atividade') or enriched.get('data_abertura') or 'Não informada'
+        situacao = (d.get('situacao_cadastral') or enriched.get('situacao_cadastral_descricao') or 'ATIVA').upper()
+        data_situacao = d.get('data_situacao') or enriched.get('data_situacao_cadastral') or ''
+        
+        sit_color_hex = "#2E7D32" if situacao == "ATIVA" else "#C62828"
+        sit_bg_hex = "#E8F5E9" if situacao == "ATIVA" else "#FFEBEE"
+
+        cnae_cod = d.get('cnae_codigo') or enriched.get('cnae_fiscal_principal') or ''
+        cnae_desc = d.get('cnae_descricao') or enriched.get('cnae_fiscal_principal_descricao') or 'Atividade não informada'
+        nat_jur = d.get('natureza_juridica') or enriched.get('natureza_juridica_descricao') or 'Não informada'
+        cap_soc = d.get('capital_social') or (f"R$ {enriched.get('capital_social'):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') if enriched.get('capital_social') else 'Não informado')
+
+        # Endereço
+        end_str = d.get('endereco') or ''
+        if not end_str and enriched:
+            p = []
+            if enriched.get('logradouro'): p.append(str(enriched['logradouro']))
+            if enriched.get('numero'): p.append(f"nº {enriched['numero']}")
+            if enriched.get('bairro'): p.append(f"Bairro {enriched['bairro']}")
+            if enriched.get('municipio'): p.append(f"{enriched['municipio']}/{enriched.get('uf','')}")
+            if enriched.get('cep'): p.append(f"CEP: {enriched['cep']}")
+            end_str = ", ".join(p)
+        if not end_str:
+            end_str = "Não informado"
+
+        # Contatos
+        tels_list = d.get('telefones') or []
+        tels_str = " • ".join(tels_list) if tels_list else (enriched.get('ddd_telefone_1') or 'Não informado')
+        emails_list = d.get('emails') or []
+        emails_str = " • ".join(emails_list) if emails_list else (enriched.get('correio_eletronico') or 'Não informado')
+
+        # CABEÇALHO DO CARTÃO CNPJ (Estilo Receita Federal)
+        header_table_data = [
+            [
+                Paragraph("<b>REPÚBLICA FEDERATIVA DO BRASIL</b><br/><b>CADASTRO NACIONAL DA PESSOA JURÍDICA</b>", card_title_style)
+            ],
+            [
+                Paragraph("<b>COMPROVANTE DE INSCRIÇÃO E DE SITUAÇÃO CADASTRAL</b>", card_sub_official)
+            ]
+        ]
+        t_card_header = Table(header_table_data, colWidths=[556])
+        t_card_header.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#ECEFF1")),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor("#455A64")),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(t_card_header)
+        story.append(Spacer(1, 2))
+
+        # GRADE PRINCIPAL DO CARTÃO CNPJ
+        card_grid_data = [
+            # Linha 1: CNPJ | MATRIZ/FILIAL | DATA ABERTURA
+            [
+                Paragraph(f"<font color='#546E7A'><b>NÚMERO DE INSCRIÇÃO</b></font><br/><b><font size='10'>{cnpj_fmt}</font></b><br/><b>{matriz_filial}</b>", flabel_style),
+                Paragraph(f"<font color='#546E7A'><b>DATA DE ABERTURA</b></font><br/><b>{data_abertura}</b>", flabel_style)
+            ],
+            # Linha 2: NOME EMPRESARIAL
+            [
+                Paragraph(f"<font color='#546E7A'><b>NOME EMPRESARIAL</b></font><br/><font size='9.5' color='#0D47A1'><b>{razao}</b></font>", flabel_style),
+                ""
+            ],
+            # Linha 3: NOME FANTASIA
+            [
+                Paragraph(f"<font color='#546E7A'><b>TÍTULO DO ESTABELECIMENTO (NOME FANTASIA)</b></font><br/><b>{fantasia}</b>", flabel_style),
+                ""
+            ],
+            # Linha 4: CNAE PRINCIPAL
+            [
+                Paragraph(f"<font color='#546E7A'><b>CÓDIGO E DESCRIÇÃO DA ATIVIDADE ECONÔMICA PRINCIPAL</b></font><br/><b>{cnae_cod}</b> — {cnae_desc}", flabel_style),
+                ""
+            ],
+            # Linha 5: NATUREZA JURÍDICA
+            [
+                Paragraph(f"<font color='#546E7A'><b>CÓDIGO E DESCRIÇÃO DA NATUREZA JURÍDICA</b></font><br/><b>{nat_jur}</b>", flabel_style),
+                ""
+            ],
+            # Linha 6: ENDEREÇO
+            [
+                Paragraph(f"<font color='#546E7A'><b>LOGRADOURO, NÚMERO, COMPLEMENTO, BAIRRO, MUNICÍPIO E UF</b></font><br/>📍 {end_str}", flabel_style),
+                ""
+            ],
+            # Linha 7: CONTATOS
+            [
+                Paragraph(f"<font color='#546E7A'><b>ENDEREÇO ELETRÔNICO (E-MAIL)</b></font><br/>✉️ {emails_str}", flabel_style),
+                Paragraph(f"<font color='#546E7A'><b>TELEFONE(S)</b></font><br/>📞 {tels_str}", flabel_style)
+            ],
+            # Linha 8: SITUAÇÃO CADASTRAL | CAPITAL SOCIAL
+            [
+                Paragraph(f"<font color='#546E7A'><b>SITUAÇÃO CADASTRAL</b></font><br/><font color='{sit_color_hex}' size='10'><b>{situacao}</b></font>" + (f" <font color='#546E7A'>(desde {data_situacao})</font>" if data_situacao else ""), flabel_style),
+                Paragraph(f"<font color='#546E7A'><b>CAPITAL SOCIAL</b></font><br/><b>{cap_soc}</b>", flabel_style)
+            ]
+        ]
+
+        t_card_grid = Table(card_grid_data, colWidths=[386, 170])
+        t_card_grid.setStyle(TableStyle([
+            ('SPAN', (0, 1), (1, 1)),
+            ('SPAN', (0, 2), (1, 2)),
+            ('SPAN', (0, 3), (1, 3)),
+            ('SPAN', (0, 4), (1, 4)),
+            ('SPAN', (0, 5), (1, 5)),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#78909C")),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#FFFFFF")),
+            ('BACKGROUND', (0, 7), (0, 7), colors.HexColor(sit_bg_hex)),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(t_card_grid)
+        story.append(Spacer(1, 8))
+
+        # QUADRO SOCIETÁRIO (QSA)
+        socios_pj = d.get('socios') or enriched.get('socios') or []
+        story.append(Paragraph("Quadro de Sócios e Administradores (QSA)", section_hdr_style))
+
+        if socios_pj:
+            qsa_table_data = [
+                [
+                    Paragraph("<b>Nome do Sócio / Administrador</b>", table_hdr_cell),
+                    Paragraph("<b>Qualificação</b>", table_hdr_cell),
+                    Paragraph("<b>CPF / CNPJ</b>", table_hdr_cell),
+                    Paragraph("<b>Data Entrada</b>", table_hdr_cell)
+                ]
+            ]
+            for s in socios_pj:
+                if isinstance(s, dict):
+                    s_nm = s.get('nome') or 'Não informado'
+                    s_ql = s.get('qualificacao') or s.get('qualificacao_descricao') or s.get('qualificacao_socio_descricao') or 'Sócio'
+                    s_dc = fmt_doc(s.get('doc') or s.get('cnpj_cpf') or s.get('cpf_cnpj') or s.get('cpf') or '')
+                    s_dt = s.get('data_entrada') or s.get('data_entrada_sociedade') or '-'
+                    qsa_table_data.append([
+                        Paragraph(f"<b>{s_nm}</b>", table_row_cell),
+                        Paragraph(s_ql, table_row_cell),
+                        Paragraph(f"<font face='Courier'>{s_dc}</font>", table_row_cell),
+                        Paragraph(str(s_dt), table_row_cell)
+                    ])
+            t_qsa = Table(qsa_table_data, colWidths=[240, 146, 100, 70])
+            t_qsa.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1565C0")),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CFD8DC")),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")])
+            ]))
+            story.append(t_qsa)
+        else:
+            story.append(Paragraph("<i>Nenhum sócio detalhado registrado ou quadro societário administrado por terceiros.</i>", fval_norm_style))
+
+    # =========================================================================
+    # CARTÕES DE PESSOAS FÍSICAS (FICHA CADASTRAL PF & VÍNCULOS)
+    # =========================================================================
+    for n in pf_nodes:
+        story.append(PageBreak())
+
+        d = n.get('_details') or {}
+        nome_pf = d.get('nome') or n.get('_raw_val') or n.get('label') or 'Nome Não Informado'
+        doc_pf = fmt_doc(d.get('documento') or '')
+        qual_pf = d.get('qualificacao') or 'Sócio'
+        
+        nt = str(n.get('_type') or '').upper()
+        is_ubo = (nt == 'UBO' or str(nome_pf).strip().lower() in ubo_names)
+        
+        badge_header = "FICHA CADASTRAL DE PESSOA FÍSICA"
+        if is_ubo:
+            badge_header += " — 👑 BENEFICIÁRIO FINAL (UBO)"
+
+        header_pf_data = [
+            [
+                Paragraph("<b>SISTEMA POMELO / CAEXLGS — REDE DE RELACIONAMENTOS</b>", card_title_style)
+            ],
+            [
+                Paragraph(f"<b>{badge_header}</b>", card_sub_official)
+            ]
+        ]
+        t_pf_header = Table(header_pf_data, colWidths=[556])
+        t_pf_header.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#FFF8E1") if is_ubo else colors.HexColor("#ECEFF1")),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor("#FFB300") if is_ubo else colors.HexColor("#455A64")),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        story.append(t_pf_header)
+        story.append(Spacer(1, 4))
+
+        # GRADE PRINCIPAL DA PESSOA FÍSICA
+        grid_pf_data = [
+            [
+                Paragraph(f"<font color='#546E7A'><b>NOME COMPLETO</b></font><br/><font size='10.5' color='#0D47A1'><b>{nome_pf}</b></font>", flabel_style),
+                Paragraph(f"<font color='#546E7A'><b>DOCUMENTO (CPF / DOC)</b></font><br/><b><font size='9.5'>{doc_pf}</font></b>", flabel_style)
+            ],
+            [
+                Paragraph(f"<font color='#546E7A'><b>CONDICÃO NA INVESTIGAÇÃO</b></font><br/><b>{'👑 BENEFICIÁRIO FINAL (UBO)' if is_ubo else '👤 SÓCIO / ADMINISTRADOR'}</b>", flabel_style),
+                Paragraph(f"<font color='#546E7A'><b>QUALIFICAÇÃO PRINCIPAL DECLARADA</b></font><br/><b>{qual_pf}</b>", flabel_style)
+            ]
+        ]
+        t_pf_grid = Table(grid_pf_data, colWidths=[366, 190])
+        t_pf_grid.setStyle(TableStyle([
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#78909C")),
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor("#FFFFFF")),
+            ('TOPPADDING', (0, 0), (-1, -1), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ]))
+        story.append(t_pf_grid)
+        story.append(Spacer(1, 10))
+
+        # EMPRESAS VINCULADAS NA REDE DO GRAFO
+        story.append(Paragraph("Participações Societárias & Empresas Vinculadas no Grafo", section_hdr_style))
+        
+        # Recupera as empresas ligadas por aresta ou por detalhes
+        linked_comps = socio_to_companies.get(n.get('id'), [])
+        if not linked_comps and d.get('empresas_vinculadas'):
+            for ev in d.get('empresas_vinculadas'):
+                linked_comps.append({
+                    'empresa': ev,
+                    'cnpj': 'Vinculada no Grafo',
+                    'situacao': 'ATIVA',
+                    'vinculo': qual_pf
+                })
+
+        if linked_comps:
+            vinc_table_data = [
+                [
+                    Paragraph("<b>Empresa Vinculada (Razão Social)</b>", table_hdr_cell),
+                    Paragraph("<b>CNPJ</b>", table_hdr_cell),
+                    Paragraph("<b>Qualificação / Papel</b>", table_hdr_cell),
+                    Paragraph("<b>Situação</b>", table_hdr_cell)
+                ]
+            ]
+            for lc in linked_comps:
+                vinc_table_data.append([
+                    Paragraph(f"<b>{lc.get('empresa','-')}</b>", table_row_cell),
+                    Paragraph(f"<font face='Courier'>{lc.get('cnpj','-')}</font>", table_row_cell),
+                    Paragraph(lc.get('vinculo','Sócio'), table_row_cell),
+                    Paragraph(lc.get('situacao','ATIVA'), table_row_cell)
+                ])
+            t_vinc = Table(vinc_table_data, colWidths=[240, 130, 116, 70])
+            t_vinc.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#2E7D32") if is_ubo else colors.HexColor("#1565C0")),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CFD8DC")),
+                ('TOPPADDING', (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.HexColor("#FFFFFF"), colors.HexColor("#F8FAFC")])
+            ]))
+            story.append(t_vinc)
+        else:
+            story.append(Paragraph("<i>Nenhuma empresa adicional diretamente vinculada a este sócio nesta visualização.</i>", fval_norm_style))
+
+    pdf_doc.build(story)
     return output.getvalue()

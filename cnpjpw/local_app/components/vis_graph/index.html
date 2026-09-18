@@ -1403,28 +1403,56 @@
           if (activeTargetNode) updateActionMenuPosition(activeTargetNode);
         });
 
-        // REQUISITO 3: Liberdade total para movimentar entidades sem que voltem à posição original
+        // REQUISITO 3: Liberdade total para movimentar entidades sem que voltem à posição original, podendo movê-las novamente quantas vezes desejar
+        network.on('dragStart', function(params) {
+          const nodeIds = (params.nodes && params.nodes.length > 0) ? params.nodes : network.getSelectedNodes();
+          if (nodeIds && nodeIds.length > 0) {
+            const updates = [];
+            nodeIds.forEach(function(id) {
+              updates.push({
+                id: id,
+                fixed: { x: false, y: false }
+              });
+            });
+            nodesDataSet.update(updates);
+          }
+        });
+
         network.on('dragEnd', function(params) {
           if (params.nodes && params.nodes.length > 0) {
             params.nodes.forEach(function(nodeId) {
-              const pos = network.getPosition(nodeId);
-              // Fixa o nó permanentemente na coordenada onde o usuário soltou!
-              nodesDataSet.update({
-                id: nodeId,
-                x: pos.x,
-                y: pos.y,
-                fixed: { x: true, y: true },
-                physics: false
-              });
+              if (freeMoveEnabled) {
+                const pos = network.getPosition(nodeId);
+                // Fixa a coordenada onde o usuário soltou sem bloquear novos arrastos (fixed: false)
+                nodesDataSet.update({
+                  id: nodeId,
+                  x: pos.x,
+                  y: pos.y,
+                  fixed: { x: false, y: false },
+                  physics: false
+                });
+              }
             });
           }
         });
 
         attachListeners();
       } else {
-        // Atualização incremental preservando nós já posicionados
+        // Atualização incremental preservando coordenadas de nós já posicionados
+        const existingPositions = network ? network.getPositions() : {};
+        const mergedNodes = nodesData.map(function(n) {
+          if (existingPositions && existingPositions[n.id]) {
+            return Object.assign({}, n, {
+              x: existingPositions[n.id].x,
+              y: existingPositions[n.id].y,
+              physics: false,
+              fixed: { x: false, y: false }
+            });
+          }
+          return n;
+        });
         nodesDataSet.clear();
-        nodesDataSet.add(nodesData);
+        nodesDataSet.add(mergedNodes);
         edgesDataSet.clear();
         edgesDataSet.add(edgesData);
         // Centraliza automaticamente após adição de novos dados

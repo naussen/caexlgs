@@ -1023,6 +1023,22 @@ elif st.session_state.view == 'DETAILS':
 
                 st.divider()
 
+                # Mapeamento consolidado de todas as empresas da rede para seleção de alvos e timeline
+                company_dict_map = {}
+                for c in all_cluster_companies:
+                    if isinstance(c, dict):
+                        raw_c = str(c.get('cnpj') or c.get('cnpj_basico') or '')
+                        c_digs = re.sub(r'\D', '', raw_c)
+                        if c_digs:
+                            company_dict_map[c_digs] = c
+                            if len(c_digs) >= 8:
+                                company_dict_map[c_digs[:8]] = c
+                root_digs = re.sub(r'\D', '', str(dados.get('cnpj') or dados.get('cnpj_basico') or ''))
+                if root_digs:
+                    company_dict_map[root_digs] = dados
+                    if len(root_digs) >= 8:
+                        company_dict_map[root_digs[:8]] = dados
+
                 # Painel de Dossiês, Relatórios e Persistência
                 tab_rep, tab_case, tab_timeline, tab_acct, tab_excl, tab_manual = st.tabs([
                     "📑 Dossiê & Relatórios",
@@ -1037,6 +1053,51 @@ elif st.session_state.view == 'DETAILS':
                     st.write("#### 📑 Emissão de Relatório e Dossiê Consolidado")
                     st.caption("Exporte todos os vínculos, indicadores de risco, quadro societário e fundamentação pericial em formato profissional.")
                     
+                    # SELETOR DO ALVO PRINCIPAL DA ANÁLISE / DOSSIÊ
+                    opcoes_alvo_rep = {}
+                    for n in (nos_atuais or []):
+                        if n["id"] in st.session_state.graph_excluded_nodes:
+                            continue
+                        nt = str(n.get("type") or "").upper()
+                        if "EMPRESA" in nt:
+                            c_dig = re.sub(r"\D", "", str(n.get("val") or n.get("id") or ""))
+                            lbl = n.get("label") or n.get("display_label") or c_dig
+                            is_root = (c_dig == cnpj or n["id"] == f"cnpj_{cnpj}" or "ROOT" in nt)
+                            tag = " [EMPRESA RAIZ CONSULTADA]" if is_root else ""
+                            fmt_c = f"{c_dig[:2]}.{c_dig[2:5]}.{c_dig[5:8]}/{c_dig[8:12]}-{c_dig[12:14]}" if len(c_dig) == 14 else c_dig
+                            opcoes_alvo_rep[n["id"]] = {
+                                "cnpj": c_dig,
+                                "label": f"🏢 {lbl} ({fmt_c}){tag}",
+                                "raw_name": lbl
+                            }
+
+                    root_rep_key = next((k for k, v in opcoes_alvo_rep.items() if v["cnpj"] == cnpj), list(opcoes_alvo_rep.keys())[0] if opcoes_alvo_rep else None)
+
+                    if opcoes_alvo_rep and root_rep_key:
+                        idx_default = list(opcoes_alvo_rep.keys()).index(root_rep_key)
+                        sel_alvo_node = st.selectbox(
+                            "🎯 Alvo Principal da Análise / Dossiê (selecione qualquer empresa do grafo):",
+                            options=list(opcoes_alvo_rep.keys()),
+                            index=idx_default,
+                            format_func=lambda k: opcoes_alvo_rep[k]["label"],
+                            key="sel_target_alvo_rep",
+                            help="Permite escolher qual empresa da rede visualizada é o foco principal do Dossiê, relatórios e análises com IA."
+                        )
+                        target_rep_info = opcoes_alvo_rep.get(sel_alvo_node, opcoes_alvo_rep[root_rep_key])
+                        t_rep_cnpj = target_rep_info["cnpj"]
+                        
+                        target_emp_data = company_dict_map.get(t_rep_cnpj) or (company_dict_map.get(t_rep_cnpj[:8]) if len(t_rep_cnpj) >= 8 else None)
+                        if not target_emp_data and len(t_rep_cnpj) >= 8:
+                            try:
+                                target_emp_data = data_service.buscar_dados_empresa_cached(t_rep_cnpj, api_client)
+                            except Exception:
+                                target_emp_data = None
+                        if not target_emp_data:
+                            target_emp_data = dados
+                    else:
+                        target_emp_data = dados
+                        t_rep_cnpj = cnpj
+
                     with st.expander("⚙️ Configurações do Assistente de IA Pericial (API Grátis)", expanded=False):
                         st.markdown("""
                         O assistente opera sob diretrizes **estritamente técnicas, assépticas e pragmáticas (sem adjetivos valorativos ou juízos preliminares)**, 
@@ -1085,9 +1146,9 @@ elif st.session_state.view == 'DETAILS':
                         if st.button("🤖 Gerar Laudo Relacional & Hipóteses com IA", key="btn_gen_ai_dossier", use_container_width=True, type="primary"):
                             with st.spinner("Analisando malha societária, cruzando correlações quantitativas e elaborando laudo pericial com IA..."):
                                 ai_res = ai_grounding.gerar_fundamentacao_dossie_ia(
-                                    root_data=dados,
+                                    root_data=target_emp_data,
                                     all_companies=all_cluster_companies,
-                                    socios_list=dados.get('socios', []),
+                                    socios_list=target_emp_data.get('socios', []),
                                     risk_info=risk_info,
                                     shared_addresses=shared_addresses,
                                     ubos=ubos,
@@ -1105,9 +1166,9 @@ elif st.session_state.view == 'DETAILS':
                         if st.button("⚖️ Minuta Técnica Local (Sem IA)", key="btn_gen_arg_logic", use_container_width=True):
                             with st.spinner("Estruturando análise técnica relacional determinística..."):
                                 arg_dict = report_generator.build_argumentative_dossier(
-                                    root_data=dados,
+                                    root_data=target_emp_data,
                                     all_companies=all_cluster_companies,
-                                    socios_list=dados.get('socios', []),
+                                    socios_list=target_emp_data.get('socios', []),
                                     risk_info=risk_info,
                                     shared_addresses=shared_addresses,
                                     ubos=ubos,
@@ -1117,34 +1178,73 @@ elif st.session_state.view == 'DETAILS':
                                 st.success("Lógica argumentativa gerada!")
                                 st.rerun()
 
-                    c_rep1, c_rep2 = st.columns(2)
+                    c_rep1, c_rep2, c_rep3 = st.columns(3)
                     with c_rep1:
                         if st.button("📑 Compilar Dossiê Completo (PDF)", key="btn_compile_pdf", use_container_width=True):
                             with st.spinner("Gerando Dossiê em PDF..."):
-                                st.session_state[f"pdf_{cnpj}"] = report_generator.generate_pdf_dossier(
-                                    root_data=dados,
+                                st.session_state[f"pdf_{t_rep_cnpj}"] = report_generator.generate_pdf_dossier(
+                                    root_data=target_emp_data,
                                     all_companies=all_cluster_companies,
-                                    socios_list=dados.get('socios', []),
+                                    socios_list=target_emp_data.get('socios', []),
                                     risk_info=risk_info,
                                     shared_addresses=shared_addresses,
                                     ubos=ubos,
                                     notes=st.session_state.investigation_notes
                                 )
-                        if st.session_state.get(f"pdf_{cnpj}"):
+                        if st.session_state.get(f"pdf_{t_rep_cnpj}"):
                             st.download_button(
-                                "📥 Baixar Dossiê Completo (PDF)",
-                                data=st.session_state[f"pdf_{cnpj}"],
-                                file_name=f"dossie_investigativo_{cnpj}.pdf",
+                                "📥 Baixar Dossiê (PDF)",
+                                data=st.session_state[f"pdf_{t_rep_cnpj}"],
+                                file_name=f"dossie_investigativo_{t_rep_cnpj}.pdf",
                                 mime="application/pdf",
                                 use_container_width=True
                             )
                     with c_rep2:
+                        pjs_count = sum(1 for n in (nos_atuais or []) if 'EMPRESA' in str(n.get("type", "")).upper() and n.get("id") not in st.session_state.graph_excluded_nodes)
+                        pfs_count = sum(1 for n in (nos_atuais or []) if str(n.get("type", "")).upper() in ("SOCIO", "UBO") and n.get("id") not in st.session_state.graph_excluded_nodes)
+                        total_cards = pjs_count + pfs_count
+
+                        btn_cards_label = f"🪪 Compilar Cartões ({total_cards}) (PDF)"
+                        if st.button(btn_cards_label, key="btn_compile_cards_pdf", use_container_width=True, help="Compila os cartões de CNPJ (PJ) e fichas cadastrais (PF) de todas as entidades do grafo em um único PDF"):
+                            with st.spinner(f"Compilando cartões de {total_cards} entidades do grafo em PDF..."):
+                                nodes_list, edges_list, _ = graph_builder.build_graph_elements(
+                                    root_data=dados,
+                                    socios_empresas=merged_socios,
+                                    contatos_empresas=merged_contatos,
+                                    shared_addresses=shared_addresses,
+                                    family_relationships=family_relationships,
+                                    ubos=ubos,
+                                    enable_risk_highlight=True,
+                                    excluded_nodes=st.session_state.graph_excluded_nodes,
+                                    auto_filter_accountants=False,
+                                    manual_nodes=st.session_state.graph_manual_nodes,
+                                    manual_edges=st.session_state.graph_manual_edges,
+                                    extra_companies=st.session_state.multi_expanded_companies,
+                                    false_positive_accountants=st.session_state.graph_false_positive_accountants,
+                                    manual_accountants=st.session_state.graph_manual_accountants
+                                )
+                                st.session_state[f"cartoes_pdf_{t_rep_cnpj}"] = report_generator.generate_compiled_cards_pdf(
+                                    nodes_list=nodes_list,
+                                    edges_list=edges_list,
+                                    all_companies=all_cluster_companies,
+                                    root_data=target_emp_data,
+                                    ubos=ubos
+                                )
+                        if st.session_state.get(f"cartoes_pdf_{t_rep_cnpj}"):
+                            st.download_button(
+                                "📥 Baixar Cartões Compilados (PDF)",
+                                data=st.session_state[f"cartoes_pdf_{t_rep_cnpj}"],
+                                file_name=f"cartoes_cadastrais_grafo_{t_rep_cnpj}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True
+                            )
+                    with c_rep3:
                         if st.button("📊 Compilar Planilha Consolidada (Excel)", key="btn_compile_excel", use_container_width=True):
                             with st.spinner("Gerando Planilha Excel..."):
-                                st.session_state[f"excel_{cnpj}"] = report_generator.generate_excel_dossier(
-                                    root_data=dados,
+                                st.session_state[f"excel_{t_rep_cnpj}"] = report_generator.generate_excel_dossier(
+                                    root_data=target_emp_data,
                                     all_companies=all_cluster_companies,
-                                    socios_list=dados.get('socios', []),
+                                    socios_list=target_emp_data.get('socios', []),
                                     risk_info=risk_info,
                                     shared_addresses=shared_addresses,
                                     ubos=ubos,
@@ -1152,11 +1252,11 @@ elif st.session_state.view == 'DETAILS':
                                     manual_edges=st.session_state.graph_manual_edges,
                                     notes=st.session_state.investigation_notes
                                 )
-                        if st.session_state.get(f"excel_{cnpj}"):
+                        if st.session_state.get(f"excel_{t_rep_cnpj}"):
                             st.download_button(
-                                "📥 Baixar Planilha Consolidada (Excel)",
-                                data=st.session_state[f"excel_{cnpj}"],
-                                file_name=f"relatorio_societario_{cnpj}.xlsx",
+                                "📥 Baixar Planilha (Excel)",
+                                data=st.session_state[f"excel_{t_rep_cnpj}"],
+                                file_name=f"relatorio_societario_{t_rep_cnpj}.xlsx",
                                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 use_container_width=True
                             )
@@ -1210,27 +1310,74 @@ elif st.session_state.view == 'DETAILS':
 
                 with tab_timeline:
                     st.write("#### ⏱️ Linha do Tempo de Entrada de Sócios")
-                    st.caption("Histórico cronológico de ingresso de cada administrador ou cotista na empresa.")
+                    st.caption("Histórico cronológico de ingresso de cada administrador ou cotista nas empresas da rede visualizada no grafo.")
                     
-                    socios_data = dados.get('socios', [])
-                    if socios_data:
-                        # Ordena por data de entrada
-                        sorted_socios = sorted(
-                            socios_data,
-                            key=lambda s: s.get('data_entrada_sociedade') or '9999-99-99'
+                    opcoes_timeline = {}
+                    for n in (nos_atuais or []):
+                        if n["id"] in st.session_state.graph_excluded_nodes:
+                            continue
+                        nt = str(n.get("type") or "").upper()
+                        if "EMPRESA" in nt:
+                            c_dig = re.sub(r"\D", "", str(n.get("val") or n.get("id") or ""))
+                            lbl = n.get("label") or n.get("display_label") or c_dig
+                            is_root = (c_dig == cnpj or n["id"] == f"cnpj_{cnpj}" or "ROOT" in nt)
+                            tag = " [EMPRESA RAIZ CONSULTADA]" if is_root else ""
+                            fmt_c = f"{c_dig[:2]}.{c_dig[2:5]}.{c_dig[5:8]}/{c_dig[8:12]}-{c_dig[12:14]}" if len(c_dig) == 14 else c_dig
+                            opcoes_timeline[n["id"]] = {
+                                "cnpj": c_dig,
+                                "label": f"🏢 {lbl} ({fmt_c}){tag}",
+                                "raw_name": lbl
+                            }
+
+                    if opcoes_timeline:
+                        root_tl_key = next((k for k, v in opcoes_timeline.items() if v["cnpj"] == cnpj), list(opcoes_timeline.keys())[0])
+                        idx_tl_default = list(opcoes_timeline.keys()).index(root_tl_key)
+                        sel_timeline_node = st.selectbox(
+                            "🏢 Selecione a empresa da rede para visualizar a linha do tempo societária:",
+                            options=list(opcoes_timeline.keys()),
+                            index=idx_tl_default,
+                            format_func=lambda k: opcoes_timeline[k]["label"],
+                            key="sel_timeline_empresa",
+                            help="Escolha qualquer uma das empresas conectadas no grafo para auditar o histórico de entrada de sócios."
                         )
-                        timeline_records = []
-                        for s in sorted_socios:
-                            dt_in = s.get('data_entrada_sociedade') or 'Data não informada'
-                            timeline_records.append({
-                                "Data de Ingresso": dt_in,
-                                "Nome do Sócio": s.get('nome', ''),
-                                "Qualificação": s.get('qualificacao_descricao', ''),
-                                "Documento": s.get('cnpj_cpf', '') or '-'
-                            })
-                        st.dataframe(pd.DataFrame(timeline_records), use_container_width=True, hide_index=True)
+                        
+                        target_tl_info = opcoes_timeline.get(sel_timeline_node, opcoes_timeline[root_tl_key])
+                        t_tl_cnpj = target_tl_info["cnpj"]
+                        
+                        emp_timeline_data = company_dict_map.get(t_tl_cnpj) or (company_dict_map.get(t_tl_cnpj[:8]) if len(t_tl_cnpj) >= 8 else None)
+                        if not emp_timeline_data and len(t_tl_cnpj) >= 8:
+                            try:
+                                emp_timeline_data = data_service.buscar_dados_empresa_cached(t_tl_cnpj, api_client)
+                            except Exception:
+                                emp_timeline_data = None
+                        if not emp_timeline_data and t_tl_cnpj == cnpj:
+                            emp_timeline_data = dados
+
+                        socios_data = (emp_timeline_data.get('socios') if emp_timeline_data else []) or []
+                        
+                        st.markdown(f"**Empresa Analisada:** `{target_tl_info['label']}`")
+                        if socios_data:
+                            sorted_socios = sorted(
+                                socios_data,
+                                key=lambda s: s.get('data_entrada_sociedade') or s.get('data_entrada') or '9999-99-99'
+                            )
+                            timeline_records = []
+                            for s in sorted_socios:
+                                dt_in = s.get('data_entrada_sociedade') or s.get('data_entrada') or 'Data não informada'
+                                s_nome = s.get('nome', '')
+                                is_ubo = any(s_nome.strip().lower() == u.get('nome', '').strip().lower() for u in (ubos or []) if isinstance(u, dict))
+                                timeline_records.append({
+                                    "Data de Ingresso": dt_in,
+                                    "Nome do Sócio / Administrador": f"{'👑 ' if is_ubo else '👤 '}{s_nome}",
+                                    "Qualificação": s.get('qualificacao_descricao') or s.get('qualificacao_socio_descricao') or s.get('qualificacao') or 'Sócio',
+                                    "Documento": s.get('cnpj_cpf') or s.get('cpf_cnpj') or s.get('doc') or s.get('cpf') or '-',
+                                    "UBO": "Sim 👑" if is_ubo else "Não"
+                                })
+                            st.dataframe(pd.DataFrame(timeline_records), use_container_width=True, hide_index=True)
+                        else:
+                            st.info(f"Nenhum sócio detalhado registrado para a empresa selecionada ({target_tl_info['raw_name']}).")
                     else:
-                        st.info("Nenhum sócio registrado nesta empresa.")
+                        st.info("Nenhuma empresa identificada no grafo atual.")
 
                 with tab_acct:
                     st.write("#### 🧮 Gestão de Contadores & Correção de Falsos Positivos")
