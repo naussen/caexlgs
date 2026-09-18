@@ -16,7 +16,7 @@ import bigquery_client
 import data_service
 import sanitizers
 
-ALLOWED_ACTIONS = {"expand", "delete", "toggle_feature", "clear"}
+ALLOWED_ACTIONS = {"expand", "delete", "toggle_feature", "clear", "open_new_cnpj"}
 ALLOWED_ENTITY_TYPES = {
     "EMPRESA", "EMPRESA_ROOT", "SOCIO", "UBO",
     "TELEFONE", "EMAIL", "CONTABILIDADE", "OUTRO"
@@ -390,6 +390,10 @@ def handle_graph_action(event: Dict[str, Any], expand_fn: Optional[Callable] = N
 
     elif action == "clear":
         clear_graph_expansions()
+        return True
+
+    elif action == "open_new_cnpj":
+        st.session_state["show_novo_cnpj_dialog"] = True
         return True
 
     return False

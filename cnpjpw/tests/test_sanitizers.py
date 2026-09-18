@@ -7,9 +7,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "local_app")))
 
 try:
-    from cnpjpw.local_app.sanitizers import adequar_documento, adequar_telefone, is_celular_prefixo
+    from cnpjpw.local_app.sanitizers import adequar_documento, adequar_telefone, is_celular_prefixo, formatar_cnpj
 except ImportError:
-    from sanitizers import adequar_documento, adequar_telefone, is_celular_prefixo
+    from sanitizers import adequar_documento, adequar_telefone, is_celular_prefixo, formatar_cnpj
 
 
 class TestAdequarDocumento:
@@ -40,6 +40,11 @@ class TestAdequarDocumento:
         # Preserva asteriscos da Receita Federal
         assert adequar_documento("***.807.980-**") == "***807980**"
         assert adequar_documento("***807980**") == "***807980**"
+
+    def test_formatar_cnpj(self):
+        assert formatar_cnpj("21807980000109") == "21.807.980/0001-09"
+        assert formatar_cnpj("21.807.980/0001-09") == "21.807.980/0001-09"
+        assert formatar_cnpj("123") == "123"
 
 
 class TestAdequarTelefone:

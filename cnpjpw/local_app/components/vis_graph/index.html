@@ -497,6 +497,7 @@
             <option value="">Selecione uma entidade para expandir conexões...</option>
           </select>
           <button id="btn-expand-sel" class="btn btn-primary" onclick="expandSelectedEntity()" title="Expandir relações da entidade selecionada">✚ Expandir</button>
+          <button id="btn-novo-cnpj" class="btn btn-primary" onclick="triggerNovoCnpj()" title="Pesquisar novo CNPJ e adicionar ao grafo atual" style="background-color: #0288d1; border-color: #0277bd;">🏢 NOVO CNPJ</button>
         </div>
 
         <div class="toolbar-divider"></div>
@@ -1144,6 +1145,18 @@
         entity_value: null,
         entity_label: null,
         feature: 'expand_contacts',
+        nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
+      });
+    }
+
+    function triggerNovoCnpj() {
+      sendValue({
+        action: 'open_new_cnpj',
+        node_id: null,
+        entity_type: null,
+        entity_value: null,
+        entity_label: null,
+        feature: null,
         nonce: Date.now() + "_" + Math.random().toString(36).substr(2, 9)
       });
     }

@@ -162,6 +162,90 @@ def executar_expansao_entidade(ent_type: str, ent_val: str, ent_label: str = "")
         ent_type, ent_val, ent_label, root_id=st.session_state.get('selected_cnpj') or st.session_state.get('current_cnpj')
     )
 
+@st.dialog("🏢 Buscar Novo CNPJ")
+def modal_novo_cnpj(root_cnpj):
+    st.markdown("Pesquise pelo **CNPJ** para adicionar uma nova empresa ao grafo atual (não substitui o grafo da empresa raiz):")
+    
+    col_inp, col_srch = st.columns([3, 1.2])
+    with col_inp:
+        cnpj_query = st.text_input(
+            "Digite o CNPJ:",
+            placeholder="Ex: 21.807.980/0001-09 ou 21807980000109",
+            key="dlg_input_novo_cnpj"
+        )
+    with col_srch:
+        st.write("")
+        st.write("")
+        btn_busca = st.button("Buscar CNPJ", key="dlg_btn_busca_cnpj", use_container_width=True)
+        
+    if btn_busca:
+        if not cnpj_query:
+            st.warning("⚠️ Digite um CNPJ para pesquisar.")
+            st.session_state.dlg_novo_cnpj_result = None
+        else:
+            cnpj_clean = sanitizers.adequar_documento(cnpj_query)
+            if len(cnpj_clean) == 8:
+                cnpj_clean = cnpj_clean.zfill(14)
+            if len(cnpj_clean) != 14:
+                st.error(f"❌ CNPJ inválido: '{cnpj_query}'. Requer 14 dígitos numéricos.")
+                st.session_state.dlg_novo_cnpj_result = None
+            else:
+                with st.spinner("Consultando dados da empresa..."):
+                    resp = data_service.get_cnpj(cnpj_clean)
+                    res_data = resp.results if isinstance(resp, data_service.QueryResult) else resp
+                    if not res_data or (isinstance(res_data, dict) and res_data.get("erro")):
+                        err_msg = (resp.error if isinstance(resp, data_service.QueryResult) else None) or (res_data.get("mensagem") if isinstance(res_data, dict) else None) or f"CNPJ {cnpj_clean} não encontrado."
+                        st.error(f"❌ {err_msg}")
+                        st.session_state.dlg_novo_cnpj_result = None
+                    else:
+                        st.session_state.dlg_novo_cnpj_result = {
+                            "cnpj": cnpj_clean,
+                            "dados": res_data
+                        }
+
+    res_obj = st.session_state.get('dlg_novo_cnpj_result')
+    if res_obj and isinstance(res_obj, dict):
+        emp_cnpj = res_obj["cnpj"]
+        emp_dados = res_obj["dados"]
+        nome_emp = emp_dados.get('nome_empresarial') or emp_dados.get('razao_social') or emp_cnpj
+        sit_emp = (emp_dados.get('situacao_cadastral_descricao') or emp_dados.get('situacao_cadastral') or 'ATIVA').upper()
+        cidade = emp_dados.get('municipio_desc') or emp_dados.get('municipio') or ''
+        uf = emp_dados.get('uf') or ''
+        cnpj_fmt = sanitizers.formatar_cnpj(emp_cnpj)
+        
+        st.divider()
+        col_res, col_btn = st.columns([2.5, 1.8])
+        with col_res:
+            st.markdown(f"**🏢 {nome_emp}**")
+            st.markdown(f"**CNPJ:** `{cnpj_fmt}` • **Situação:** `{sit_emp}`")
+            if cidade or uf:
+                st.caption(f"📍 {cidade} - {uf}")
+            cnae_desc = emp_dados.get('cnae_fiscal_principal_descricao')
+            if cnae_desc:
+                st.caption(f"💼 {cnae_desc}")
+                
+        with col_btn:
+            st.write("")
+            root_clean = "".join(filter(str.isdigit, str(root_cnpj or "")))
+            if root_clean and emp_cnpj == root_clean:
+                st.info("ℹ️ Este CNPJ é a empresa raiz do grafo atual.")
+            elif emp_cnpj in st.session_state.get("multi_expanded_companies", {}):
+                st.info(f"ℹ️ A empresa {nome_emp} já está no grafo atual.")
+            else:
+                if st.button("➕ ADICIONAR AO GRAFO ATUAL", key="dlg_btn_add_graph", type="primary", use_container_width=True):
+                    if "multi_expanded_companies" not in st.session_state:
+                        st.session_state.multi_expanded_companies = {}
+                    st.session_state.multi_expanded_companies[emp_cnpj] = emp_dados
+                    
+                    if "graph_excluded_nodes" in st.session_state:
+                        st.session_state.graph_excluded_nodes.discard(emp_cnpj)
+                        st.session_state.graph_excluded_nodes.discard(f"cnpj_{emp_cnpj}")
+                        
+                    st.toast(f"✅ Empresa '{nome_emp}' adicionada ao grafo atual!")
+                    st.session_state.dlg_novo_cnpj_result = None
+                    st.session_state.show_novo_cnpj_dialog = False
+                    st.rerun()
+
 @st.cache_data(ttl=86400, show_spinner=False)
 def obter_cnae_completo(cnae_cod: str, cnae_desc: str = ""):
     """
@@ -979,7 +1063,7 @@ elif st.session_state.view == 'DETAILS':
                     if n["id"] not in st.session_state.graph_excluded_nodes
                 }
                 if opcoes_nos:
-                    c_sel_ent, c_act_exp, c_act_del = st.columns([3.2, 1.2, 0.9])
+                    c_sel_ent, c_act_exp, c_act_new, c_act_del = st.columns([2.8, 1.1, 1.3, 0.9])
                     with c_sel_ent:
                         sel_node_id = st.selectbox(
                             "🎯 Entidade Selecionada para Expansão / Exclusão:",
@@ -989,7 +1073,7 @@ elif st.session_state.view == 'DETAILS':
                             label_visibility="collapsed"
                         )
                     with c_act_exp:
-                        if st.button("✚ Expandir Nó", key="btn_act_expand_node", use_container_width=True, help="Busca e adiciona à rede todas as empresas e conexões vinculadas a esta entidade"):
+                        if st.button("✚ Expandir", key="btn_act_expand_node", use_container_width=True, help="Busca e adiciona à rede todas as empresas e conexões vinculadas a esta entidade"):
                             target_n = next((n for n in nos_atuais if n["id"] == sel_node_id), None)
                             if target_n:
                                 graph_dispatcher.handle_graph_action({
@@ -1001,6 +1085,10 @@ elif st.session_state.view == 'DETAILS':
                                     "nonce": f"ext_expand_{time.time()}"
                                 }, expand_fn=executar_expansao_entidade, root_id=cnpj)
                                 st.rerun()
+                    with c_act_new:
+                        if st.button("🏢 NOVO CNPJ", key="btn_act_new_cnpj", use_container_width=True, help="Pesquisar novo CNPJ e adicionar ao grafo atual"):
+                            st.session_state.show_novo_cnpj_dialog = True
+                            st.rerun()
                     with c_act_del:
                         is_sel_root = bool(
                             sel_node_id and (
@@ -1020,6 +1108,16 @@ elif st.session_state.view == 'DETAILS':
                                     "nonce": f"ext_delete_{time.time()}"
                                 }, root_id=cnpj)
                                 st.rerun()
+                else:
+                    c_empty_new, _ = st.columns([1.5, 4.5])
+                    with c_empty_new:
+                        if st.button("🏢 NOVO CNPJ", key="btn_act_new_cnpj_empty", use_container_width=True, help="Pesquisar novo CNPJ e adicionar ao grafo atual"):
+                            st.session_state.show_novo_cnpj_dialog = True
+                            st.rerun()
+
+                if st.session_state.get('show_novo_cnpj_dialog'):
+                    st.session_state.show_novo_cnpj_dialog = False
+                    modal_novo_cnpj(cnpj)
 
                 st.divider()
 

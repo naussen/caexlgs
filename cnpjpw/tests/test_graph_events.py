@@ -309,6 +309,15 @@ class TestGraphEvents(unittest.TestCase):
         self.assertEqual(len(st.session_state["graph_excluded_nodes"]), 0)
         self.assertFalse(st.session_state["graph_expand_socios"])
 
+        # 5. Open New CNPJ
+        st.session_state["show_novo_cnpj_dialog"] = False
+        res_new = graph_dispatcher.handle_graph_action({
+            "action": "open_new_cnpj",
+            "nonce": "test_new_cnpj_nonce"
+        })
+        self.assertTrue(res_new)
+        self.assertTrue(st.session_state.get("show_novo_cnpj_dialog"))
+
     def test_graph_dispatcher_blocks_root_deletion(self):
         """Valida que a exclusão da empresa raiz sob análise é terminantemente bloqueada."""
         from cnpjpw.local_app import graph_dispatcher
@@ -334,6 +343,38 @@ class TestGraphEvents(unittest.TestCase):
         }, root_id=root_cnpj)
         self.assertFalse(res2)
         self.assertNotIn(f"cnpj_{root_cnpj}", st.session_state["graph_excluded_nodes"])
+
+    def test_novo_cnpj_add_to_current_graph(self):
+        """Valida a adição de um novo CNPJ ao grafo atual sem gerar novo grafo."""
+        import streamlit as st
+
+        root_cnpj = "11111111000111"
+        new_cnpj = "22222222000122"
+        st.session_state["current_cnpj"] = root_cnpj
+        st.session_state["multi_expanded_companies"] = {}
+        st.session_state["graph_excluded_nodes"] = {new_cnpj, f"cnpj_{new_cnpj}"}
+
+        emp_dados = {
+            "cnpj": new_cnpj,
+            "nome_empresarial": "NOVA EMPRESA TESTE LTDA",
+            "situacao_cadastral": "02",
+            "situacao_cadastral_descricao": "ATIVA",
+            "socios": []
+        }
+
+        # Simula a adição ao grafo atual
+        st.session_state["multi_expanded_companies"][new_cnpj] = emp_dados
+        st.session_state["graph_excluded_nodes"].discard(new_cnpj)
+        st.session_state["graph_excluded_nodes"].discard(f"cnpj_{new_cnpj}")
+
+        # Verifica que o grafo raiz permaneceu inalterado (não gera novo grafo)
+        self.assertEqual(st.session_state["current_cnpj"], root_cnpj)
+        # Verifica que a nova empresa foi adicionada ao grafo atual
+        self.assertIn(new_cnpj, st.session_state["multi_expanded_companies"])
+        self.assertEqual(st.session_state["multi_expanded_companies"][new_cnpj]["nome_empresarial"], "NOVA EMPRESA TESTE LTDA")
+        # Verifica que não está mais excluída
+        self.assertNotIn(new_cnpj, st.session_state["graph_excluded_nodes"])
+        self.assertNotIn(f"cnpj_{new_cnpj}", st.session_state["graph_excluded_nodes"])
 
 
 class TestEntityExpansionSemantics(unittest.TestCase):

@@ -291,3 +291,14 @@ def correspondem_pessoa_fisica(
 
     return True, None
 
+
+def formatar_cnpj(doc: Any) -> str:
+    """
+    Formata um CNPJ para o padrão oficial 00.000.000/0000-00 se possuir 14 dígitos numéricos.
+    Caso contrário, retorna a representação textual do documento original.
+    """
+    digitos = adequar_documento(doc)
+    if len(digitos) == 14:
+        return f"{digitos[:2]}.{digitos[2:5]}.{digitos[5:8]}/{digitos[8:12]}-{digitos[12:]}"
+    return str(doc or "")
+
